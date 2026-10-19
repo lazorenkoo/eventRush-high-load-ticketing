@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -85,6 +86,52 @@ public class CrowdGateClient {
                 throw new IllegalArgumentException("Invalid CrowdGate session");
             }
             return new Admission(expectedGate, visitor, queueSession, sessions.getFirst().getValue());
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "CROWDGATE_UNAVAILABLE");
+        } catch (IOException | IllegalArgumentException error) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "CROWDGATE_UNAVAILABLE");
+        }
+    }
+
+    public Instant validateSession(Admission admission) {
+        return session(admission, false);
+    }
+
+    public Instant heartbeat(Admission admission) {
+        return session(admission, true);
+    }
+
+    private Instant session(Admission admission, boolean heartbeat) {
+        Objects.requireNonNull(admission, "admission");
+        String credential = admission.sessionCredential();
+        if (admission.gateId() == null || admission.visitorId() == null || credential == null
+                || !credential.matches(admission.gateId() + ":[A-Za-z0-9_-]{43}")) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "CROWDGATE_SESSION_REQUIRED");
+        }
+        try {
+            String path = "/api/v1/gates/" + admission.gateId() + "/session" + (heartbeat ? "/heartbeat" : "");
+            var builder = HttpRequest.newBuilder(redeemUri.resolve(path)).timeout(timeout)
+                    .header("Cookie", "cg_user_id=" + admission.visitorId() + "; cg_session=" + credential);
+            var request = heartbeat ? builder.POST(HttpRequest.BodyPublishers.noBody()).build() : builder.GET().build();
+            var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                HttpStatus status = switch (response.statusCode()) {
+                    case 400, 401, 403, 404, 409, 410 -> HttpStatus.UNAUTHORIZED;
+                    default -> HttpStatus.SERVICE_UNAVAILABLE;
+                };
+                throw new ResponseStatusException(status, "CROWDGATE_SESSION_REJECTED");
+            }
+            var body = mapper.readTree(response.body());
+            if (body == null || !admission.gateId().toString().equals(body.path("gateId").asText())
+                    || !body.path("expiresAtMillis").canConvertToLong()) {
+                throw new IllegalArgumentException("Invalid CrowdGate session response");
+            }
+            Instant expiresAt = Instant.ofEpochMilli(body.path("expiresAtMillis").longValue());
+            if (!expiresAt.isAfter(Instant.now())) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "CROWDGATE_SESSION_EXPIRED");
+            }
+            return expiresAt;
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "CROWDGATE_UNAVAILABLE");
