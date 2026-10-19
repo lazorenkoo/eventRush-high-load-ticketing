@@ -39,7 +39,10 @@ public class BrowserOriginFilter extends OncePerRequestFilter {
         if (path.startsWith("/api/") && !SAFE_METHODS.contains(request.getMethod())) {
             var origins = Collections.list(request.getHeaders("Origin"));
             if (origins.size() != 1 || !allowedOrigin.equals(origins.getFirst())) {
-                response.sendError(HttpServletResponse.SC_FORBIDDEN, "ORIGIN_REJECTED");
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.setContentType("application/json");
+                response.setHeader("Cache-Control", "no-store");
+                response.getWriter().write("{\"status\":403,\"code\":\"ORIGIN_REJECTED\"}");
                 return;
             }
         }
