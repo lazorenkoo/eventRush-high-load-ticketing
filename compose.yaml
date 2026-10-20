@@ -1,6 +1,32 @@
 name: eventrush
 
 services:
+  relayforge-db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: relayforge
+      POSTGRES_USER: relayforge
+      POSTGRES_PASSWORD: ${RELAYFORGE_DATABASE_PASSWORD:?Set RELAYFORGE_DATABASE_PASSWORD}
+    volumes:
+      - relayforge-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relayforge -d relayforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  relayforge:
+    build:
+      context: integrations/relayforge
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://relayforge-db:5432/relayforge
+      SPRING_DATASOURCE_USERNAME: relayforge
+      SPRING_DATASOURCE_PASSWORD: ${RELAYFORGE_DATABASE_PASSWORD:?Set RELAYFORGE_DATABASE_PASSWORD}
+      RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
+    depends_on:
+      relayforge-db:
+        condition: service_healthy
+
   eventrush-db:
     image: postgres:17.11
     environment:
@@ -26,9 +52,15 @@ services:
       EVENTRUSH_ADMIN_API_KEY: ${EVENTRUSH_ADMIN_API_KEY:?Set EVENTRUSH_ADMIN_API_KEY}
       EVENTRUSH_PAYMENT_WORKER_ENABLED: "true"
       EVENTRUSH_CONCERT_SOLD_OUT_WORKER_ENABLED: "true"
+      EVENTRUSH_RELAYFORGE_ENABLED: "true"
+      EVENTRUSH_RELAYFORGE_BASE_URL: http://relayforge:8080
+      EVENTRUSH_RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
     depends_on:
       eventrush-db:
         condition: service_healthy
+      relayforge:
+        condition: service_started
 
 volumes:
   eventrush-data:
+  relayforge-data:
