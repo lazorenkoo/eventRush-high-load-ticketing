@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Statistics</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/admin.js"></script>
+</head>
+<body>
+  <main>
+    <a href="/">EventRush</a>
+    <h1>Statistics</h1>
+    <form id="stats">
+      <p><label>Admin key <input id="key" type="password" autocomplete="off" required></label></p>
+      <p><label>Concert ID <input id="concert" required></label></p>
+      <button>Refresh</button>
+    </form>
+    <p id="message" role="status"></p>
+    <table id="result"></table>
+  </main>
+</body>
+</html>
