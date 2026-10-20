@@ -1,0 +1,34 @@
+name: eventrush
+
+services:
+  eventrush-db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: eventrush
+      POSTGRES_USER: eventrush
+      POSTGRES_PASSWORD: ${EVENTRUSH_DATABASE_PASSWORD:?Set EVENTRUSH_DATABASE_PASSWORD}
+    volumes:
+      - eventrush-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventrush -d eventrush"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  eventrush:
+    build: .
+    ports:
+      - "127.0.0.1:8082:8082"
+    environment:
+      EVENTRUSH_DATABASE_URL: jdbc:postgresql://eventrush-db:5432/eventrush
+      EVENTRUSH_DATABASE_USER: eventrush
+      EVENTRUSH_DATABASE_PASSWORD: ${EVENTRUSH_DATABASE_PASSWORD:?Set EVENTRUSH_DATABASE_PASSWORD}
+      EVENTRUSH_ADMIN_API_KEY: ${EVENTRUSH_ADMIN_API_KEY:?Set EVENTRUSH_ADMIN_API_KEY}
+      EVENTRUSH_PAYMENT_WORKER_ENABLED: "true"
+      EVENTRUSH_CONCERT_SOLD_OUT_WORKER_ENABLED: "true"
+    depends_on:
+      eventrush-db:
+        condition: service_healthy
+
+volumes:
+  eventrush-data:
