@@ -1,9 +1,13 @@
 package com.lazorenkoo.eventrush.downstream;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -16,13 +20,28 @@ public class DownstreamProcessor {
     public enum Consumer { TICKETS, ACCOUNTING, NOTIFICATIONS }
 
     private final JdbcTemplate jdbc;
+    private final boolean failFirstNotification;
+    private final TransactionTemplate failureTransactions;
 
-    public DownstreamProcessor(JdbcTemplate jdbc) {
+    public DownstreamProcessor(JdbcTemplate jdbc, PlatformTransactionManager transactions,
+            @Value("${eventrush.downstream.demo.fail-first-notification:false}") boolean failFirstNotification) {
         this.jdbc = jdbc;
+        this.failFirstNotification = failFirstNotification;
+        this.failureTransactions = new TransactionTemplate(transactions);
+        this.failureTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.failureTransactions.setTimeout(10);
     }
 
     @Transactional(timeout = 10)
     public void process(Consumer consumer, WebhookEvent event) {
+        if (failFirstNotification && consumer == Consumer.NOTIFICATIONS && event.type().equals("ticket.purchased")) {
+            Boolean first = failureTransactions.execute(status -> jdbc.update("""
+                    insert into notification_demo_failures(event_id) values (?) on conflict do nothing
+                    """, event.id()) == 1);
+            if (Boolean.TRUE.equals(first)) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "DEMO_NOTIFICATION_UNAVAILABLE");
+            }
+        }
         int inserted = jdbc.update("""
                 insert into webhook_receipts(consumer, event_id, event_type, payload_sha256)
                 values (?, ?, ?, ?) on conflict (consumer, event_id) do nothing
