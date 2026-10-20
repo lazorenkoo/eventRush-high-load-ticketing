@@ -1,11 +1,13 @@
 import {mountQueue} from './queue.js';
 import {mountSeats} from './seats.js';
 import {mountReservation} from './reservation.js';
+import {mountResults} from './results.js';
 
 const message = document.querySelector('#message');
 const concerts = document.querySelector('#concerts');
 const details = document.querySelector('#details');
 const reload = document.querySelector('#reload');
+mountResults(document.querySelector('main'));
 const date = value => new Date(value).toLocaleString('en-GB');
 let stopQueue = () => {};
 let selection = 0;
