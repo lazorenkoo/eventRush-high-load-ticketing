@@ -1,4 +1,5 @@
 import {mountQueue} from './queue.js';
+import {mountSeats} from './seats.js';
 
 const message = document.querySelector('#message');
 const concerts = document.querySelector('#concerts');
@@ -7,6 +8,12 @@ const reload = document.querySelector('#reload');
 const date = value => new Date(value).toLocaleString('en-GB');
 let stopQueue = () => {};
 let selection = 0;
+let stopSeats = () => {};
+details.addEventListener('admitted', event => {
+  stopSeats();
+  stopSeats = mountSeats(event.detail, details);
+});
+details.addEventListener('admissionlost', () => stopSeats());
 
 function text(parent, tag, value) {
   const node = document.createElement(tag);
@@ -23,6 +30,7 @@ async function read(path) {
 
 async function show(id) {
   stopQueue();
+  stopSeats();
   const current = ++selection;
   try {
     const concert = await read(`/api/v1/concerts/${encodeURIComponent(id)}`);

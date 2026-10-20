@@ -25,6 +25,7 @@ export function mountQueue(concert, parent) {
     status.textContent = error.message;
     button.disabled = false;
     exchanging = false;
+    parent.dispatchEvent(new Event('admissionlost'));
   }
 
   function admitted() {
