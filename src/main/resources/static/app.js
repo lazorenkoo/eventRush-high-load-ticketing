@@ -16,6 +16,7 @@ let stopReservation = () => {};
 details.addEventListener('reserved', event => {
   stopReservation();
   stopReservation = mountReservation(event.detail, details);
+  history.replaceState(null, '', '#reservation=' + encodeURIComponent(event.detail.id));
 });
 details.addEventListener('admitted', event => {
   stopSeats();
@@ -74,4 +75,22 @@ async function load() {
 }
 
 reload.addEventListener('click', load);
-load();
+load().then(restoreReservation);
+
+async function restoreReservation() {
+  const id = new URLSearchParams(location.hash.slice(1)).get('reservation');
+  if (!id) return;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    message.textContent = 'Invalid reservation ID.';
+    return;
+  }
+  const current = selection;
+  try {
+    const reservation = await read(`/api/v1/reservations/${encodeURIComponent(id)}`);
+    if (current !== selection) return;
+    details.hidden = false;
+    details.dispatchEvent(new CustomEvent('reserved', {detail: reservation}));
+  } catch (error) {
+    if (current === selection) message.textContent = error.message;
+  }
+}
