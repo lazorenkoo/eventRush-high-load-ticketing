@@ -1,6 +1,21 @@
 name: eventrush
 
 services:
+  sample-data:
+    image: python:3.12-alpine
+    command: ["python", "/setup/sample-data.py"]
+    environment:
+      EVENTRUSH_ADMIN_API_KEY: ${EVENTRUSH_ADMIN_API_KEY:?Set EVENTRUSH_ADMIN_API_KEY}
+      CG_ADMIN_KEY: ${CG_ADMIN_KEY:?Set CG_ADMIN_KEY}
+    volumes:
+      - ./scripts/sample-data.py:/setup/sample-data.py:ro
+      - sample-state:/state
+    depends_on:
+      eventrush:
+        condition: service_started
+      crowdgate:
+        condition: service_started
+
   gateway:
     image: nginx:1.28-alpine
     ports:
@@ -148,3 +163,4 @@ volumes:
   crowdgate-data:
   crowdgate-redis-data:
   webhook-secrets:
+  sample-state:

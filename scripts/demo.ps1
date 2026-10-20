@@ -74,6 +74,10 @@ try {
     if (-not $ready) {
         throw 'Demo did not become ready; inspect docker compose logs'
     }
+    docker compose run --rm sample-data
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Sample setup failed; existing data was preserved'
+    }
     Write-Host 'EventRush is running at http://localhost:8082'
 } finally {
     Pop-Location
