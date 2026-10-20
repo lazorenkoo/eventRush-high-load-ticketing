@@ -18,7 +18,6 @@ export function mountSeats(concert, parent) {
   const message = add('p', '');
   message.setAttribute('role', 'status');
   const table = add('table', '');
-  const reservations = add('div', '');
 
   async function request(path, method = 'GET') {
     const response = await fetch(path, {method, credentials: 'same-origin',
@@ -34,7 +33,6 @@ export function mountSeats(concert, parent) {
     button.disabled = true;
     try {
       const result = await request(`/api/v1/seats/${seat.id}/reserve`, 'POST');
-      add('p', `Reservation: ${result.id} — ${result.status} — expires ${result.expiresAt}`, reservations);
       parent.dispatchEvent(new CustomEvent('reserved', {detail: result}));
       await load();
     } catch (error) {
@@ -65,8 +63,9 @@ export function mountSeats(concert, parent) {
     finally { refresh.disabled = false; }
   }
   refresh.addEventListener('click', load);
+  parent.addEventListener('reservationchanged', load);
   previous.addEventListener('click', () => { offset -= 100; load(); });
   next.addEventListener('click', () => { offset += 100; load(); });
   load();
-  return () => { abort.abort(); panel.remove(); };
+  return () => { abort.abort(); parent.removeEventListener('reservationchanged', load); panel.remove(); };
 }
