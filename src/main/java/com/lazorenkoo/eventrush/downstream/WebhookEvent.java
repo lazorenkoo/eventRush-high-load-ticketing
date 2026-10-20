@@ -35,13 +35,21 @@ public record WebhookEvent(UUID id, String type, JsonNode data, String payload, 
             if (data == null || !data.isObject()) {
                 throw invalid();
             }
+            JsonNode envelopeType = null;
+            if (data.has("data")) {
+                envelopeType = data.path("type");
+                data = data.path("data");
+                if (!envelopeType.isTextual() || !data.isObject()) {
+                    throw invalid();
+                }
+            }
             JsonNode metadata = data.path("_eventrush");
             JsonNode version = metadata.path("version");
             JsonNode type = metadata.path("type");
             JsonNode identifier = metadata.path("id");
             if (!metadata.isObject() || !version.isIntegralNumber() || !version.canConvertToInt()
                     || version.intValue() != 1 || !type.isTextual() || !TYPES.contains(type.textValue())
-                    || !identifier.isTextual()) {
+                    || !identifier.isTextual() || envelopeType != null && !envelopeType.equals(type)) {
                 throw invalid();
             }
             UUID id = UUID.fromString(identifier.textValue());

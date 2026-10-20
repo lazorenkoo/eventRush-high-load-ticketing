@@ -66,9 +66,23 @@ services:
       SPRING_DATASOURCE_USERNAME: relayforge
       SPRING_DATASOURCE_PASSWORD: ${RELAYFORGE_DATABASE_PASSWORD:?Set RELAYFORGE_DATABASE_PASSWORD}
       RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
+      # Local demo receivers live on the private Compose network.
+      RELAYFORGE_WEBHOOKS_ALLOW_LOCAL: "true"
     depends_on:
       relayforge-db:
         condition: service_healthy
+
+  webhook-setup:
+    image: python:3.12-alpine
+    command: ["python", "/setup/webhooks.py"]
+    environment:
+      RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
+    volumes:
+      - ./scripts/webhooks.py:/setup/webhooks.py:ro
+      - webhook-secrets:/run/webhook-secrets
+    depends_on:
+      relayforge:
+        condition: service_started
 
   eventrush-db:
     image: postgres:17.11
@@ -101,6 +115,10 @@ services:
       EVENTRUSH_RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
       EVENTRUSH_CROWDGATE_ENABLED: "true"
       EVENTRUSH_CROWDGATE_BASE_URL: http://crowdgate:8080
+      EVENTRUSH_DOWNSTREAM_ENABLED: "true"
+      SPRING_CONFIG_IMPORT: configtree:/run/webhook-secrets/
+    volumes:
+      - webhook-secrets:/run/webhook-secrets:ro
     depends_on:
       eventrush-db:
         condition: service_healthy
@@ -108,9 +126,12 @@ services:
         condition: service_started
       crowdgate:
         condition: service_started
+      webhook-setup:
+        condition: service_completed_successfully
 
 volumes:
   eventrush-data:
   relayforge-data:
   crowdgate-data:
   crowdgate-redis-data:
+  webhook-secrets:
