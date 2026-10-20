@@ -1,6 +1,49 @@
 name: eventrush
 
 services:
+  crowdgate-db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: crowdgate
+      POSTGRES_USER: crowdgate
+      POSTGRES_PASSWORD: ${CG_DATABASE_PASSWORD:?Set CG_DATABASE_PASSWORD}
+    volumes:
+      - crowdgate-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crowdgate -d crowdgate"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  crowdgate-redis:
+    image: redis:7.4.8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - crowdgate-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  crowdgate:
+    build:
+      context: integrations/crowdgate
+      target: crowdgate
+    environment:
+      CG_DATABASE_URL: jdbc:postgresql://crowdgate-db:5432/crowdgate
+      CG_DATABASE_USER: crowdgate
+      CG_DATABASE_PASSWORD: ${CG_DATABASE_PASSWORD:?Set CG_DATABASE_PASSWORD}
+      CG_REDIS_HOST: crowdgate-redis
+      CG_REDIS_PORT: "6379"
+      CG_ADMIN_KEY: ${CG_ADMIN_KEY:?Set CG_ADMIN_KEY}
+      CG_ADMISSION_SIGNING_KEY: ${CG_ADMISSION_SIGNING_KEY:?Set CG_ADMISSION_SIGNING_KEY}
+    depends_on:
+      crowdgate-db:
+        condition: service_healthy
+      crowdgate-redis:
+        condition: service_healthy
+
   relayforge-db:
     image: postgres:17.11
     environment:
@@ -55,12 +98,18 @@ services:
       EVENTRUSH_RELAYFORGE_ENABLED: "true"
       EVENTRUSH_RELAYFORGE_BASE_URL: http://relayforge:8080
       EVENTRUSH_RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
+      EVENTRUSH_CROWDGATE_ENABLED: "true"
+      EVENTRUSH_CROWDGATE_BASE_URL: http://crowdgate:8080
     depends_on:
       eventrush-db:
         condition: service_healthy
       relayforge:
         condition: service_started
+      crowdgate:
+        condition: service_started
 
 volumes:
   eventrush-data:
   relayforge-data:
+  crowdgate-data:
+  crowdgate-redis-data:
