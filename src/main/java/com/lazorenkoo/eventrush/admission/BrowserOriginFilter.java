@@ -35,7 +35,10 @@ public class BrowserOriginFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        String path = request.getRequestURI().substring(request.getContextPath().length());
+        String path = request.getServletPath();
+        if (path.isEmpty()) {
+            path = request.getRequestURI().substring(request.getContextPath().length());
+        }
         if (path.startsWith("/api/") && !SAFE_METHODS.contains(request.getMethod())) {
             var origins = Collections.list(request.getHeaders("Origin"));
             if (origins.size() != 1 || !allowedOrigin.equals(origins.getFirst())) {
