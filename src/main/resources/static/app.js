@@ -1,8 +1,12 @@
+import {mountQueue} from './queue.js';
+
 const message = document.querySelector('#message');
 const concerts = document.querySelector('#concerts');
 const details = document.querySelector('#details');
 const reload = document.querySelector('#reload');
 const date = value => new Date(value).toLocaleString('en-GB');
+let stopQueue = () => {};
+let selection = 0;
 
 function text(parent, tag, value) {
   const node = document.createElement(tag);
@@ -18,8 +22,11 @@ async function read(path) {
 }
 
 async function show(id) {
+  stopQueue();
+  const current = ++selection;
   try {
     const concert = await read(`/api/v1/concerts/${encodeURIComponent(id)}`);
+    if (current !== selection) return;
     details.replaceChildren();
     text(details, 'h2', concert.name);
     text(details, 'p', `ID: ${concert.id}`);
@@ -27,6 +34,7 @@ async function show(id) {
     text(details, 'p', `Sales open: ${date(concert.saleStartsAt)}`);
     text(details, 'p', `Status: ${concert.status}`);
     details.hidden = false;
+    stopQueue = mountQueue(concert, details);
   } catch (error) { message.textContent = error.message; }
 }
 
