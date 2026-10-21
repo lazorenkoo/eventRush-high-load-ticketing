@@ -18,7 +18,7 @@ async function page(respond) {
   const parent = new Node();
   const requests = [];
   const context = vm.createContext({
-    document: {querySelector: () => parent, createElement: () => new Node()}, Date,
+    document: {querySelector: () => parent, createElement: () => new Node()}, Date, setTimeout, clearTimeout,
     fetch: async (path, options) => { requests.push({path, options}); return respond(); }
   });
   const module = new vm.SourceTextModule(source, {context});
