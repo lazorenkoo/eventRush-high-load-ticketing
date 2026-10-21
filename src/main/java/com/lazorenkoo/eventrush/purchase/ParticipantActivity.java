@@ -63,6 +63,19 @@ public class ParticipantActivity {
         for (UUID participant : participants) append(participant, event, kind, state);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void failPendingPayment(UUID reservation) {
+        var payments = jdbc.queryForList("""
+                update payments set status = 'FAILED', completed_at = clock_timestamp()
+                where reservation_id = ? and status = 'PENDING' returning id
+                """, UUID.class, reservation);
+        for (UUID payment : payments) {
+            UUID event = UUID.nameUUIDFromBytes((payment + "|FAILED")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            forReservation(reservation, event, Kind.PAYMENT, "FAILED");
+        }
+    }
+
     public enum Kind {
         REGISTRATION, QUEUE, RESERVATION, PAYMENT, TICKET, ACCOUNTING, NOTIFICATION
     }

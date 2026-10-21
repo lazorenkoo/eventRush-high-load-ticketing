@@ -1,5 +1,6 @@
 package com.lazorenkoo.eventrush.reservation;
 
+import com.lazorenkoo.eventrush.purchase.ParticipantActivity;
 import com.lazorenkoo.eventrush.relayforge.OutgoingEvents;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -12,10 +13,12 @@ import java.util.UUID;
 public class ReservationExpirationService {
 
     private final JdbcTemplate jdbc;
+    private final ParticipantActivity activity;
     private final OutgoingEvents events;
 
-    public ReservationExpirationService(JdbcTemplate jdbc, OutgoingEvents events) {
+    public ReservationExpirationService(JdbcTemplate jdbc, OutgoingEvents events, ParticipantActivity activity) {
         this.jdbc = jdbc;
+        this.activity = activity;
         this.events = events;
     }
 
@@ -37,13 +40,11 @@ public class ReservationExpirationService {
             if (released != 1) {
                 throw new IllegalStateException("Reserved seat is missing during expiration");
             }
-            jdbc.update("""
-                    update payments set status = 'FAILED', completed_at = clock_timestamp()
-                    where reservation_id = ? and status = 'PENDING'
-                    """, reservation.id());
-            events.enqueue("reservation.expired", Map.of("reservationId", reservation.id(),
+            activity.failPendingPayment(reservation.id());
+            UUID event = events.enqueue("reservation.expired", Map.of("reservationId", reservation.id(),
                     "seatId", reservation.seatId(), "concertId", reservation.concertId(),
                     "userId", reservation.userId()));
+            activity.forReservation(reservation.id(), event, ParticipantActivity.Kind.RESERVATION, "EXPIRED");
         }
         return expired.size();
     }

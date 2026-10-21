@@ -1,5 +1,6 @@
 package com.lazorenkoo.eventrush.reservation;
 
+import com.lazorenkoo.eventrush.purchase.ParticipantActivity;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -12,9 +13,11 @@ import java.util.UUID;
 public class ReservationCancellationService {
 
     private final JdbcTemplate jdbc;
+    private final ParticipantActivity activity;
 
-    public ReservationCancellationService(JdbcTemplate jdbc) {
+    public ReservationCancellationService(JdbcTemplate jdbc, ParticipantActivity activity) {
         this.jdbc = jdbc;
+        this.activity = activity;
     }
 
     @Transactional
@@ -39,10 +42,9 @@ public class ReservationCancellationService {
         if (released != 1) {
             throw new IllegalStateException("Reserved seat is missing during cancellation");
         }
-        jdbc.update("""
-                update payments set status = 'FAILED', completed_at = clock_timestamp()
-                where reservation_id = ? and status = 'PENDING'
-                """, reservationId);
+        activity.failPendingPayment(reservationId);
+        activity.forReservation(reservationId, UUID.randomUUID(),
+                ParticipantActivity.Kind.RESERVATION, "CANCELLED");
     }
 
     private record State(UUID seatId, String status) {
