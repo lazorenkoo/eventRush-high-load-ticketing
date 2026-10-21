@@ -1,5 +1,6 @@
 package com.lazorenkoo.eventrush.downstream;
 
+import com.lazorenkoo.eventrush.purchase.ParticipantActivity;
 import org.springframework.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,12 +21,14 @@ public class DownstreamProcessor {
     public enum Consumer { TICKETS, ACCOUNTING, NOTIFICATIONS }
 
     private final JdbcTemplate jdbc;
+    private final ParticipantActivity activity;
     private final boolean failFirstNotification;
     private final TransactionTemplate failureTransactions;
 
-    public DownstreamProcessor(JdbcTemplate jdbc, PlatformTransactionManager transactions,
+    public DownstreamProcessor(JdbcTemplate jdbc, PlatformTransactionManager transactions, ParticipantActivity activity,
             @Value("${eventrush.downstream.demo.fail-first-notification:false}") boolean failFirstNotification) {
         this.jdbc = jdbc;
+        this.activity = activity;
         this.failFirstNotification = failFirstNotification;
         this.failureTransactions = new TransactionTemplate(transactions);
         this.failureTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -76,6 +79,22 @@ public class DownstreamProcessor {
                     """, event.id(), event.type(), event.type().equals("concert.sold_out")
                     ? null : uuid(event, "userId"), event.payload());
         }
+        recordActivity(consumer, event);
+    }
+
+    private void recordActivity(Consumer consumer, WebhookEvent event) {
+        if (event.type().equals("concert.sold_out")) return;
+        ParticipantActivity.Kind kind = switch (consumer) {
+            case TICKETS -> ParticipantActivity.Kind.TICKET;
+            case ACCOUNTING -> ParticipantActivity.Kind.ACCOUNTING;
+            case NOTIFICATIONS -> ParticipantActivity.Kind.NOTIFICATION;
+        };
+        String state = switch (consumer) {
+            case TICKETS -> "ISSUED";
+            case ACCOUNTING -> "RECORDED";
+            case NOTIFICATIONS -> "SIMULATED";
+        };
+        activity.forReservation(uuid(event, "reservationId"), event.id(), kind, state);
     }
 
     private UUID uuid(WebhookEvent event, String field) {
