@@ -55,7 +55,7 @@ public class ParticipantService {
         if (updated == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PARTICIPANT_RESERVATION_NOT_FOUND");
     }
 
-    private static String name(String value) {
+    static String name(String value) {
         if (value == null) throw invalidName();
         String cleaned = value.strip();
         if (cleaned.isEmpty() || cleaned.codePointCount(0, cleaned.length()) > 100
