@@ -55,6 +55,8 @@ class ParticipantReservationIntegrationTest {
     @AfterEach
     void cleanup() {
         jdbc.update("delete from outgoing_events where payload::jsonb->>'concertId'=?", concert.toString());
+        jdbc.update("delete from participant_activity where participant_id in "
+                + "(select id from purchase_participants where concert_id=?)", concert);
         jdbc.update("delete from purchase_participants where concert_id=?", concert);
         jdbc.update("delete from reservations where seat_id=?", seat);
         jdbc.update("delete from seats where concert_id=?", concert);

@@ -44,6 +44,9 @@ public class ParticipantActivity {
         if (previous.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PARTICIPANT_NOT_FOUND");
         }
+        String priorState = previous.getFirst().state();
+        if (("ACTIVE".equals(priorState) && state != QueueState.ACTIVE)
+                || ("ADMITTED".equals(priorState) && state == QueueState.WAITING)) return;
         jdbc.update("""
                 update purchase_participants set queue_state = ?, queue_observed_at = clock_timestamp()
                 where id = ? and user_id = ?

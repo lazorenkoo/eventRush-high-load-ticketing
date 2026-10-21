@@ -52,7 +52,8 @@ class ParticipantRegistrationIntegrationTest {
         gate = UUID.randomUUID();
         token = gate + ":" + UUID.randomUUID();
         crowdgate = mock(CrowdGateClient.class);
-        service = new ParticipantRegistrationService(jdbc, crowdgate);
+        service = new ParticipantRegistrationService(jdbc, crowdgate, mock(ParticipantActivity.class));
+        when(crowdgate.requireQueueOwner(gate, visitor, token)).thenReturn("WAITING");
         concert = jdbc.queryForObject("""
                 insert into concerts(name, starts_at, sale_starts_at, crowdgate_gate_id, status)
                 values ('Registration test',now()+interval '1 day',now(),?,'ON_SALE') returning id

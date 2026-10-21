@@ -14,12 +14,14 @@ public class ParticipantReservationService {
     private final JdbcTemplate jdbc;
     private final ReservationService reservations;
     private final ParticipantService participants;
+    private final ParticipantActivity activity;
 
     public ParticipantReservationService(JdbcTemplate jdbc, ReservationService reservations,
-                                         ParticipantService participants) {
+                                         ParticipantService participants, ParticipantActivity activity) {
         this.jdbc = jdbc;
         this.reservations = reservations;
         this.participants = participants;
+        this.activity = activity;
     }
 
     @Transactional
@@ -48,6 +50,7 @@ public class ParticipantReservationService {
         }
         var reservation = reservations.reserve(seat, owner, gate);
         participants.linkReservation(participant, owner, reservation.id());
+        activity.append(participant, reservation.id(), ParticipantActivity.Kind.RESERVATION, reservation.status());
         return reservation;
     }
 

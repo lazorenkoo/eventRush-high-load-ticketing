@@ -20,10 +20,12 @@ import java.util.UUID;
 public class ParticipantRegistrationService {
     private final JdbcTemplate jdbc;
     private final CrowdGateClient crowdgate;
+    private final ParticipantActivity activity;
 
-    public ParticipantRegistrationService(JdbcTemplate jdbc, CrowdGateClient crowdgate) {
+    public ParticipantRegistrationService(JdbcTemplate jdbc, CrowdGateClient crowdgate, ParticipantActivity activity) {
         this.jdbc = jdbc;
         this.crowdgate = crowdgate;
+        this.activity = activity;
     }
 
     @Transactional
@@ -36,7 +38,7 @@ public class ParticipantRegistrationService {
                 where c.id = ? and s.id = ? and c.status = 'ON_SALE'
                 """, UUID.class, concert, seat);
         if (gates.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PURCHASE_SEAT_UNAVAILABLE");
-        crowdgate.requireQueueOwner(gates.getFirst(), visitor, queueToken);
+        String queueState = crowdgate.requireQueueOwner(gates.getFirst(), visitor, queueToken);
         String queueKey = digest(queueToken + "|" + visitor);
         var ids = jdbc.queryForList("""
                 insert into purchase_participants(user_id, concert_id, preferred_seat_id,
@@ -53,7 +55,10 @@ public class ParticipantRegistrationService {
                 returning id
                 """, UUID.class, visitor, concert, seat, firstName, lastName, queueKey);
         if (ids.isEmpty()) throw new ResponseStatusException(HttpStatus.CONFLICT, "PARTICIPANT_ALREADY_REGISTERED");
-        return ids.getFirst();
+        UUID participant = ids.getFirst();
+        activity.append(participant, participant, ParticipantActivity.Kind.REGISTRATION, "REGISTERED");
+        activity.observeQueue(participant, visitor, ParticipantActivity.QueueState.valueOf(queueState));
+        return participant;
     }
 
     private static String digest(String value) {
