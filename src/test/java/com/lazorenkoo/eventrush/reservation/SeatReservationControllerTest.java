@@ -3,6 +3,7 @@ package com.lazorenkoo.eventrush.reservation;
 import com.lazorenkoo.eventrush.admission.*;
 import com.lazorenkoo.eventrush.api.ApiExceptionHandler;
 import com.lazorenkoo.eventrush.crowdgate.CrowdGateClient.Admission;
+import com.lazorenkoo.eventrush.purchase.ParticipantReservationService;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,7 @@ class SeatReservationControllerTest {
         when(jdbc.queryForList("select concert_id from seats where id = ?", UUID.class, seat)).thenReturn(List.of(concert));
         when(admissions.requireActiveOwner(token, concert)).thenReturn(owner);
         mvc = MockMvcBuilders.standaloneSetup(new SeatReservationController(jdbc, new SessionCookie(true),
-                        sessions, admissions, reservations)).setControllerAdvice(new ApiExceptionHandler())
+                        sessions, admissions, reservations, mock(ParticipantReservationService.class))).setControllerAdvice(new ApiExceptionHandler())
                 .addFilters(new BrowserOriginFilter("https://tickets.example.com")).build();
     }
 
