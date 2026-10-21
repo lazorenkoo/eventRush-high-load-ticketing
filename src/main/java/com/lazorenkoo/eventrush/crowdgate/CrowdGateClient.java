@@ -94,6 +94,49 @@ public class CrowdGateClient {
         }
     }
 
+    public String requireQueueOwner(UUID expectedGate, UUID visitor, String queueToken) {
+        Objects.requireNonNull(expectedGate, "expectedGate");
+        Objects.requireNonNull(visitor, "visitor");
+        String prefix = expectedGate + ":";
+        if (queueToken == null || !queueToken.startsWith(prefix) || queueToken.length() != 73) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "CROWDGATE_QUEUE_REQUIRED");
+        }
+        try {
+            String session = queueToken.substring(prefix.length());
+            if (!UUID.fromString(session).toString().equals(session)) {
+                throw new IllegalArgumentException("Invalid queue token");
+            }
+        } catch (IllegalArgumentException error) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "CROWDGATE_QUEUE_REQUIRED");
+        }
+        try {
+            var request = HttpRequest.newBuilder(redeemUri.resolve("/api/v1/queue/" + queueToken))
+                    .timeout(timeout).header("Cookie", "cg_user_id=" + visitor).GET().build();
+            var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                HttpStatus status = switch (response.statusCode()) {
+                    case 400, 401, 403, 404, 409, 410 -> HttpStatus.UNAUTHORIZED;
+                    default -> HttpStatus.SERVICE_UNAVAILABLE;
+                };
+                throw new ResponseStatusException(status, "CROWDGATE_QUEUE_REJECTED");
+            }
+            var body = mapper.readTree(response.body());
+            if (body == null || !queueToken.equals(body.path("queueToken").asText())) {
+                throw new IllegalArgumentException("Invalid queue response");
+            }
+            String status = body.path("status").asText();
+            if (!java.util.Set.of("WAITING", "ADMITTED", "ACTIVE").contains(status)) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "CROWDGATE_QUEUE_ENDED");
+            }
+            return status;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "CROWDGATE_UNAVAILABLE");
+        } catch (IOException | IllegalArgumentException error) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "CROWDGATE_UNAVAILABLE");
+        }
+    }
+
     public Instant validateSession(Admission admission) {
         return session(admission, false);
     }
