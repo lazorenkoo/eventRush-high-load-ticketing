@@ -56,6 +56,13 @@ public class ParticipantActivity {
         }
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void forReservation(UUID reservation, UUID event, Kind kind, String state) {
+        var participants = jdbc.queryForList("select id from purchase_participants where reservation_id = ?",
+                UUID.class, reservation);
+        for (UUID participant : participants) append(participant, event, kind, state);
+    }
+
     public enum Kind {
         REGISTRATION, QUEUE, RESERVATION, PAYMENT, TICKET, ACCOUNTING, NOTIFICATION
     }

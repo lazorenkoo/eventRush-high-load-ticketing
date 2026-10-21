@@ -1,5 +1,6 @@
 package com.lazorenkoo.eventrush.payment;
 
+import com.lazorenkoo.eventrush.purchase.ParticipantActivity;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,12 +21,14 @@ public class PaymentService {
 
     private final JdbcTemplate jdbc;
     private final long delayMillis;
+    private final ParticipantActivity activity;
 
-    public PaymentService(JdbcTemplate jdbc, @Value("${eventrush.payment.delay:PT10S}") Duration delay) {
+    public PaymentService(JdbcTemplate jdbc, @Value("${eventrush.payment.delay:PT10S}") Duration delay, ParticipantActivity activity) {
         if (delay.toMillis() <= 0) {
             throw new IllegalArgumentException("Payment delay must be at least one millisecond");
         }
         this.jdbc = jdbc;
+        this.activity = activity;
         this.delayMillis = delay.toMillis();
     }
 
@@ -54,11 +57,13 @@ public class PaymentService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "RESERVATION_NOT_ACTIVE");
         }
         long delay = mode == Mode.DELAYED_SUCCESS ? delayMillis : 0;
-        return jdbc.queryForObject("""
+        Payment payment = jdbc.queryForObject("""
                 insert into payments (id, reservation_id, amount, simulation_mode, created_at, complete_after)
                 values (?, ?, ?, ?, clock_timestamp(), clock_timestamp() + (? * interval '1 millisecond'))
                 returning *
                 """, this::payment, UUID.randomUUID(), reservationId, prices.getFirst(), mode.name(), delay);
+        activity.forReservation(reservationId, payment.id(), ParticipantActivity.Kind.PAYMENT, "PENDING");
+        return payment;
     }
 
     private Payment payment(ResultSet row, int number) throws SQLException {

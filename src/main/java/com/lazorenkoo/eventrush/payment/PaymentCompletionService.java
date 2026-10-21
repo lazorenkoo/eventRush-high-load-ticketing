@@ -1,6 +1,7 @@
 package com.lazorenkoo.eventrush.payment;
 
 import com.lazorenkoo.eventrush.relayforge.OutgoingEvents;
+import com.lazorenkoo.eventrush.purchase.ParticipantActivity;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -16,10 +17,12 @@ public class PaymentCompletionService {
 
     private final JdbcTemplate jdbc;
     private final OutgoingEvents events;
+    private final ParticipantActivity activity;
 
-    public PaymentCompletionService(JdbcTemplate jdbc, OutgoingEvents events) {
+    public PaymentCompletionService(JdbcTemplate jdbc, OutgoingEvents events, ParticipantActivity activity) {
         this.jdbc = jdbc;
         this.events = events;
+        this.activity = activity;
     }
 
     @Transactional(timeout = 10)
@@ -43,7 +46,7 @@ public class PaymentCompletionService {
             return payment.status();
         }
         if (!reservation.status().equals("ACTIVE")) {
-            finish(payment.id(), "FAILED");
+            finish(payment.id(), reservationId, "FAILED");
             return "FAILED";
         }
         String reservationStatus = jdbc.queryForObject("""
@@ -59,18 +62,21 @@ public class PaymentCompletionService {
             throw new IllegalStateException("Reserved seat is missing during payment completion");
         }
         String paymentStatus = success ? "SUCCESS" : "FAILED";
-        finish(payment.id(), paymentStatus);
+        finish(payment.id(), reservationId, paymentStatus);
         String type = "EXPIRED".equals(reservationStatus) ? "reservation.expired"
                 : success ? "ticket.purchased" : "payment.failed";
-        events.enqueue(type, Map.of("paymentId", payment.id(), "reservationId", reservationId,
+        UUID event = events.enqueue(type, Map.of("paymentId", payment.id(), "reservationId", reservationId,
                 "seatId", reservation.seatId(), "concertId", reservation.concertId(),
                 "userId", reservation.userId(), "amount", payment.amount()));
+        activity.forReservation(reservationId, event, ParticipantActivity.Kind.RESERVATION, reservationStatus);
         return paymentStatus;
     }
 
-    private void finish(UUID paymentId, String status) {
+    private void finish(UUID paymentId, UUID reservationId, String status) {
         jdbc.update("update payments set status = ?, completed_at = clock_timestamp() where id = ?",
                 status, paymentId);
+        UUID event = UUID.nameUUIDFromBytes((paymentId + "|" + status).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        activity.forReservation(reservationId, event, ParticipantActivity.Kind.PAYMENT, status);
     }
 
     private record Reservation(UUID seatId, UUID userId, UUID concertId, String status) {
