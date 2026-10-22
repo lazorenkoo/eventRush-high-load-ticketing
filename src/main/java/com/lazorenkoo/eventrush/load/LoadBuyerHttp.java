@@ -13,6 +13,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.List;
@@ -20,6 +21,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Component
 public class LoadBuyerHttp {
@@ -76,9 +80,21 @@ public class LoadBuyerHttp {
             request.method(method, payload == null ? HttpRequest.BodyPublishers.noBody()
                     : HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(payload)));
             if (payload != null) request.header("Content-Type", "application/json");
-            var response = http.send(request.build(), ignored -> new LimitedBody());
-            cookies.put(target, response.headers().map());
-            return response;
+            var pending = http.sendAsync(request.build(), ignored -> new LimitedBody());
+            try {
+                var response = pending.get(5, TimeUnit.SECONDS);
+                cookies.put(target, response.headers().map());
+                return response;
+            } catch (TimeoutException exception) {
+                pending.cancel(true);
+                throw new HttpTimeoutException("Buyer request timed out");
+            } catch (ExecutionException exception) {
+                if (exception.getCause() instanceof IOException error) throw error;
+                throw new IOException("Buyer request failed", exception.getCause());
+            } catch (InterruptedException exception) {
+                pending.cancel(true);
+                throw exception;
+            }
         }
 
         @Override
