@@ -1,0 +1,7 @@
+**
+!pom.xml
+!src/
+!src/main/
+!src/main/**
+!Dockerfile
+!.dockerignore

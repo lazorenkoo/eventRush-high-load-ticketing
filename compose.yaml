@@ -1,0 +1,167 @@
+name: eventrush
+
+services:
+  sample-data:
+    image: python:3.12-alpine
+    command: ["python", "/setup/sample-data.py"]
+    environment:
+      EVENTRUSH_ADMIN_API_KEY: ${EVENTRUSH_ADMIN_API_KEY:?Set EVENTRUSH_ADMIN_API_KEY}
+      CG_ADMIN_KEY: ${CG_ADMIN_KEY:?Set CG_ADMIN_KEY}
+    volumes:
+      - ./scripts/sample-data.py:/setup/sample-data.py:ro
+      - sample-state:/state
+    depends_on:
+      eventrush:
+        condition: service_started
+      crowdgate:
+        condition: service_started
+
+  gateway:
+    image: nginx:1.28-alpine
+    ports:
+      - "127.0.0.1:8082:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      eventrush:
+        condition: service_started
+      crowdgate:
+        condition: service_started
+
+  crowdgate-db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: crowdgate
+      POSTGRES_USER: crowdgate
+      POSTGRES_PASSWORD: ${CG_DATABASE_PASSWORD:?Set CG_DATABASE_PASSWORD}
+    volumes:
+      - crowdgate-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crowdgate -d crowdgate"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  crowdgate-redis:
+    image: redis:7.4.8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - crowdgate-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  crowdgate:
+    build:
+      context: integrations/crowdgate
+      target: crowdgate
+    environment:
+      CG_DATABASE_URL: jdbc:postgresql://crowdgate-db:5432/crowdgate
+      CG_DATABASE_USER: crowdgate
+      CG_DATABASE_PASSWORD: ${CG_DATABASE_PASSWORD:?Set CG_DATABASE_PASSWORD}
+      CG_REDIS_HOST: crowdgate-redis
+      CG_REDIS_PORT: "6379"
+      CG_ADMIN_KEY: ${CG_ADMIN_KEY:?Set CG_ADMIN_KEY}
+      CG_ADMISSION_SIGNING_KEY: ${CG_ADMISSION_SIGNING_KEY:?Set CG_ADMISSION_SIGNING_KEY}
+    depends_on:
+      crowdgate-db:
+        condition: service_healthy
+      crowdgate-redis:
+        condition: service_healthy
+
+  relayforge-db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: relayforge
+      POSTGRES_USER: relayforge
+      POSTGRES_PASSWORD: ${RELAYFORGE_DATABASE_PASSWORD:?Set RELAYFORGE_DATABASE_PASSWORD}
+    volumes:
+      - relayforge-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relayforge -d relayforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  relayforge:
+    build:
+      context: integrations/relayforge
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://relayforge-db:5432/relayforge
+      SPRING_DATASOURCE_USERNAME: relayforge
+      SPRING_DATASOURCE_PASSWORD: ${RELAYFORGE_DATABASE_PASSWORD:?Set RELAYFORGE_DATABASE_PASSWORD}
+      RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
+      # Local demo receivers live on the private Compose network.
+      RELAYFORGE_WEBHOOKS_ALLOW_LOCAL: "true"
+    depends_on:
+      relayforge-db:
+        condition: service_healthy
+
+  webhook-setup:
+    image: python:3.12-alpine
+    command: ["python", "/setup/webhooks.py"]
+    environment:
+      RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
+    volumes:
+      - ./scripts/webhooks.py:/setup/webhooks.py:ro
+      - webhook-secrets:/run/webhook-secrets
+    depends_on:
+      relayforge:
+        condition: service_started
+
+  eventrush-db:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: eventrush
+      POSTGRES_USER: eventrush
+      POSTGRES_PASSWORD: ${EVENTRUSH_DATABASE_PASSWORD:?Set EVENTRUSH_DATABASE_PASSWORD}
+    volumes:
+      - eventrush-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventrush -d eventrush"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  eventrush:
+    build: .
+    environment:
+      EVENTRUSH_DATABASE_URL: jdbc:postgresql://eventrush-db:5432/eventrush
+      EVENTRUSH_DATABASE_USER: eventrush
+      EVENTRUSH_DATABASE_PASSWORD: ${EVENTRUSH_DATABASE_PASSWORD:?Set EVENTRUSH_DATABASE_PASSWORD}
+      EVENTRUSH_ADMIN_API_KEY: ${EVENTRUSH_ADMIN_API_KEY:?Set EVENTRUSH_ADMIN_API_KEY}
+      EVENTRUSH_BROWSER_ORIGIN: http://localhost:8082
+      EVENTRUSH_BROWSER_SECURE_COOKIE: "false"
+      EVENTRUSH_PAYMENT_WORKER_ENABLED: "true"
+      EVENTRUSH_CONCERT_SOLD_OUT_WORKER_ENABLED: "true"
+      EVENTRUSH_RELAYFORGE_ENABLED: "true"
+      EVENTRUSH_EVENTS_INCLUDE_IDENTITY: "true"
+      EVENTRUSH_RELAYFORGE_BASE_URL: http://relayforge:8080
+      EVENTRUSH_RELAYFORGE_API_KEY: ${RELAYFORGE_API_KEY:?Set RELAYFORGE_API_KEY}
+      EVENTRUSH_CROWDGATE_ENABLED: "true"
+      EVENTRUSH_CROWDGATE_BASE_URL: http://crowdgate:8080
+      EVENTRUSH_CROWDGATE_ADMIN_KEY: ${CG_ADMIN_KEY:?Set CG_ADMIN_KEY}
+      EVENTRUSH_DOWNSTREAM_ENABLED: "true"
+      EVENTRUSH_DOWNSTREAM_DEMO_FAIL_FIRST_NOTIFICATION: ${EVENTRUSH_DEMO_FAIL_FIRST_NOTIFICATION:-false}
+      SPRING_CONFIG_IMPORT: configtree:/run/webhook-secrets/
+    volumes:
+      - webhook-secrets:/run/webhook-secrets:ro
+    depends_on:
+      eventrush-db:
+        condition: service_healthy
+      relayforge:
+        condition: service_started
+      crowdgate:
+        condition: service_started
+      webhook-setup:
+        condition: service_completed_successfully
+
+volumes:
+  eventrush-data:
+  relayforge-data:
+  crowdgate-data:
+  crowdgate-redis-data:
+  webhook-secrets:
+  sample-state:

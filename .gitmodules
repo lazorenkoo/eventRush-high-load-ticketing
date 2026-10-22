@@ -1,0 +1,6 @@
+[submodule "integrations/relayforge"]
+	path = integrations/relayforge
+	url = https://github.com/lazorenkoo/Reliable-Webhook-Delivery-Platform.git
+[submodule "integrations/crowdgate"]
+	path = integrations/crowdgate
+	url = https://github.com/lazorenkoo/crowdgate-virtual-waiting-room.git
