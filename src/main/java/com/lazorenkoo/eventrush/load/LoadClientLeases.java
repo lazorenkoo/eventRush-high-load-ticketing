@@ -17,6 +17,12 @@ public class LoadClientLeases {
 
     @Transactional(timeout = 5)
     public List<Client> claim(UUID run) {
+        return claim(run, 100);
+    }
+
+    @Transactional(timeout = 5)
+    public List<Client> claim(UUID run, int capacity) {
+        if (capacity < 1 || capacity > 100) throw new IllegalArgumentException("Invalid worker capacity");
         var settings = jdbc.query("select status,concurrency from load_test_runs where id=? for update",
                 (row, index) -> new Settings(row.getString("status"), row.getInt("concurrency")), run);
         if (settings.isEmpty() || !settings.getFirst().status().equals("RUNNING")) return List.of();
@@ -34,7 +40,7 @@ public class LoadClientLeases {
                 """, (row, index) -> new Client(row.getObject("id", UUID.class), row.getObject("run_id", UUID.class),
                 row.getObject("concert_id", UUID.class), row.getObject("seat_id", UUID.class),
                 row.getString("first_name"), row.getString("last_name"), row.getObject("lease_token", UUID.class)),
-                run, Math.min(available, 100));
+                run, Math.min(available, capacity));
     }
 
     @Transactional(timeout = 5)
