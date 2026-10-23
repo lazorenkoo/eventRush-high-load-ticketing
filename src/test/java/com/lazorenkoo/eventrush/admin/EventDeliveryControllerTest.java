@@ -1,6 +1,7 @@
 package com.lazorenkoo.eventrush.admin;
 
 import com.lazorenkoo.eventrush.api.ApiExceptionHandler;
+import com.lazorenkoo.eventrush.admission.BrowserOriginFilter;
 import com.lazorenkoo.eventrush.relayforge.RelayForgeClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -18,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class EventDeliveryControllerTest {
@@ -29,8 +31,57 @@ class EventDeliveryControllerTest {
     private final String payload = "{ \"concertId\": \"" + concert + "\", \"name\": \"private\" }";
     private final String path = "/api/v1/admin/concerts/" + concert + "/events/" + event + "/deliveries";
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new EventDeliveryController(jdbc, relay))
-            .setControllerAdvice(new ApiExceptionHandler()).addFilters(new AdminAuthenticationFilter(KEY)).build();
+            .setControllerAdvice(new ApiExceptionHandler()).addFilters(new BrowserOriginFilter("http://localhost:8082"), new AdminAuthenticationFilter(KEY)).build();
 
+    private void failedDelivery(String status) {
+        published(true);
+        when(relay.publishedId(event, "ticket.purchased", payload)).thenReturn(42L);
+        when(relay.deliveries(42)).thenReturn(List.of(
+                new RelayForgeClient.DeliveryView(7, 42, 3, status, 503, 2, null, null)));
+    }
+
+    @Test
+    void authorizedRetryDelegatesOnceAndPreservesReceiverOutcome() throws Exception {
+        failedDelivery("FAILED");
+        when(relay.retry(7)).thenReturn(new RelayForgeClient.RetryResult(503, false));
+        mvc.perform(post(path + "/7/retry").header("X-Admin-Key", KEY).header("Origin", "http://localhost:8082"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.httpStatus").value(503))
+                .andExpect(jsonPath("$.successful").value(false)).andExpect(header().string("Cache-Control", "no-store"));
+        verify(relay).retry(7);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing-key", "wrong-key", "duplicate-key", "missing-origin", "wrong-origin", "duplicate-origin"})
+    void retryRejectsInvalidCredentialsAndOriginsBeforeDependencies(String mode) throws Exception {
+        var request = post(path + "/7/retry");
+        if (!mode.equals("missing-key")) request.header("X-Admin-Key", mode.equals("wrong-key") ? "wrong" : KEY);
+        if (mode.equals("duplicate-key")) request.header("X-Admin-Key", KEY);
+        if (!mode.equals("missing-origin")) request.header("Origin", mode.equals("wrong-origin") ? "http://other" : "http://localhost:8082");
+        if (mode.equals("duplicate-origin")) request.header("Origin", "http://localhost:8082");
+        mvc.perform(request).andExpect(status().is(mode.contains("origin") ? 403 : 401));
+        verifyNoInteractions(jdbc, relay);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PENDING", "PROCESSING", "SUCCEEDED"})
+    void nonFailedDeliveryCannotBeRetried(String state) throws Exception {
+        failedDelivery(state);
+        mvc.perform(post(path + "/7/retry").header("X-Admin-Key", KEY).header("Origin", "http://localhost:8082"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("DELIVERY_NOT_RETRYABLE"));
+        verify(relay, never()).retry(anyLong());
+    }
+
+    @Test
+    void foreignDeliveryCannotBeRetriedAndRemoteFailureIsSanitized() throws Exception {
+        failedDelivery("FAILED");
+        mvc.perform(post(path + "/8/retry").header("X-Admin-Key", KEY).header("Origin", "http://localhost:8082"))
+                .andExpect(status().isNotFound());
+        verify(relay, never()).retry(anyLong());
+        when(relay.retry(7)).thenThrow(new IllegalStateException("private destination"));
+        mvc.perform(post(path + "/7/retry").header("X-Admin-Key", KEY).header("Origin", "http://localhost:8082"))
+                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("RELAYFORGE_UNAVAILABLE"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("private"))));
+    }
     private void published(boolean exists) {
         when(jdbc.query(anyString(), any(RowMapper.class), eq(event), eq(concert.toString())))
                 .thenAnswer(call -> {
