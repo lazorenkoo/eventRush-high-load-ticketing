@@ -96,6 +96,45 @@ class ConcertStatsIntegrationTest {
         mvc.perform(get(path(concert))).andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void throughputUsesSuccessfulCompletionTimeAndExactConcertWindow() throws Exception {
+        UUID other = jdbc.queryForObject("""
+                insert into concerts(name,starts_at,sale_starts_at,crowdgate_gate_id)
+                values ('Other',now()+interval '1 day',now(),?) returning id
+                """, UUID.class, UUID.randomUUID());
+        throughputPayment(concert, "SUCCESS", -1);
+        throughputPayment(concert, "SUCCESS", 0);
+        throughputPayment(concert, "SUCCESS", -59);
+        throughputPayment(concert, "SUCCESS", -60);
+        throughputPayment(concert, "SUCCESS", -61);
+        throughputPayment(concert, "SUCCESS", 1);
+        throughputPayment(concert, "SUCCESS", null);
+        throughputPayment(concert, "FAILED", -1);
+        throughputPayment(concert, "PENDING", -1);
+        throughputPayment(other, "SUCCESS", -1);
+        mvc.perform(get(path(concert)).header("X-Admin-Key", KEY)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.purchasesLastMinute").value(3))
+                .andExpect(jsonPath("$.throughputWindowSeconds").value(60))
+                .andExpect(jsonPath("$.purchasesPerSecond").value(0.05))
+                .andExpect(header().string("Cache-Control", "no-store"));
+    }
+
+    private void throughputPayment(UUID concertId, String status, Integer seconds) {
+        int number = jdbc.queryForObject("select count(*) + 1 from seats", Integer.class);
+        jdbc.update("""
+                with seat as (
+                    insert into seats(concert_id,section,seat_row,seat_number,price)
+                    values (?,'RATE','1',?,10) returning id
+                ), reservation as (
+                    insert into reservations(user_id,seat_id,expires_at)
+                    select ?,id,now()+interval '5 minutes' from seat returning id
+                )
+                insert into payments(reservation_id,amount,status,simulation_mode,created_at,completed_at)
+                select id,10,?,'SUCCESS',now()-interval '1 day',
+                    case when ?::integer is null then null else now()+(? * interval '1 second') end
+                from reservation
+                """, concertId, number, owner, status, seconds, seconds);
+    }
     private String path(UUID id) {
         return "/api/v1/admin/concerts/" + id + "/stats";
     }
