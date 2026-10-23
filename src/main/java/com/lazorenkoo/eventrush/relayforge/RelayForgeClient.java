@@ -115,6 +115,44 @@ public class RelayForgeClient {
         return List.copyOf(result);
     }
 
+    public List<AttemptView> attempts(long deliveryId) {
+        if (deliveryId <= 0) throw new IllegalArgumentException("Delivery identity must be positive");
+        var uri = eventsUri.resolve("/api/v1/deliveries/" + deliveryId + "/attempts");
+        var request = HttpRequest.newBuilder(uri).timeout(requestTimeout)
+                .header("X-API-Key", apiKey).GET().build();
+        JsonNode rows = json(request);
+        if (!rows.isArray() || rows.size() > 100) throw invalidDelivery();
+        var result = new ArrayList<AttemptView>();
+        var identities = new java.util.HashSet<Long>();
+        var numbers = new java.util.HashSet<Integer>();
+        for (JsonNode row : rows) {
+            long id = positiveId(row.path("id"));
+            if (!identities.add(id) || positiveId(row.path("deliveryId")) != deliveryId) {
+                throw invalidDelivery();
+            }
+            JsonNode number = row.path("attemptNumber");
+            if (!number.isIntegralNumber() || !number.canConvertToInt() || number.intValue() < 1
+                    || !numbers.add(number.intValue())) throw invalidDelivery();
+            JsonNode status = row.path("status");
+            if (!status.isTextual() || !Set.of("PENDING", "PROCESSING", "SUCCEEDED", "FAILED")
+                    .contains(status.textValue())) throw invalidDelivery();
+            JsonNode httpStatus = row.path("httpStatus");
+            Integer code = null;
+            if (!httpStatus.isNull()) {
+                if (!httpStatus.isIntegralNumber() || !httpStatus.canConvertToInt()
+                        || httpStatus.intValue() < 100 || httpStatus.intValue() > 599) {
+                    throw invalidDelivery();
+                }
+                code = httpStatus.intValue();
+            }
+            result.add(new AttemptView(id, deliveryId, number.intValue(), code,
+                    deliveryTime(row.path("completedAt")), status.textValue()));
+        }
+        return List.copyOf(result);
+    }
+
+    public record AttemptView(long id, long deliveryId, int attemptNumber, Integer httpStatus,
+                              Instant completedAt, String status) {}
     private static long positiveId(JsonNode value) {
         if (!value.isIntegralNumber() || !value.canConvertToLong() || value.longValue() <= 0) {
             throw invalidDelivery();
