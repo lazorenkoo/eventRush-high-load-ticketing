@@ -33,6 +33,39 @@ class EventDeliveryControllerTest {
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new EventDeliveryController(jdbc, relay))
             .setControllerAdvice(new ApiExceptionHandler()).addFilters(new BrowserOriginFilter("http://localhost:8082"), new AdminAuthenticationFilter(KEY)).build();
 
+    @Test
+    void concurrentRemoteRetryConflictIsSafeAndNeverRepeated() throws Exception {
+        failedDelivery("FAILED");
+        when(relay.retry(7)).thenThrow(mock(RelayForgeClient.RemoteConflict.class));
+        mvc.perform(post(path + "/7/retry").header("X-Admin-Key", KEY).header("Origin", "http://localhost:8082"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("DELIVERY_NOT_RETRYABLE"))
+                .andExpect(header().string("Cache-Control", "no-store"));
+        verify(relay).retry(7);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1", "invalid"})
+    void invalidRetryIdentityIsRejectedBeforeAnyDependencies(String id) throws Exception {
+        mvc.perform(post(path + "/" + id + "/retry").header("X-Admin-Key", KEY)
+                .header("Origin", "http://localhost:8082")).andExpect(status().isBadRequest());
+        verifyNoInteractions(jdbc, relay);
+    }
+
+    @Test
+    void eventDeliveryRoutesRequireExplicitRelayForgeEnableFlag() {
+        for (boolean enabled : new boolean[] {false, true}) {
+            try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+                context.getEnvironment().getPropertySources().addFirst(new org.springframework.core.env.MapPropertySource(
+                        "flags", java.util.Map.of("eventrush.relayforge.enabled", enabled)));
+                context.registerBean(JdbcTemplate.class, () -> jdbc);
+                context.registerBean(RelayForgeClient.class, () -> relay);
+                context.register(EventDeliveryController.class);
+                context.refresh();
+                assertThat(context.getBeansOfType(EventDeliveryController.class)).hasSize(enabled ? 1 : 0);
+            }
+        }
+        verifyNoInteractions(relay);
+    }
     private void failedDelivery(String status) {
         published(true);
         when(relay.publishedId(event, "ticket.purchased", payload)).thenReturn(42L);
