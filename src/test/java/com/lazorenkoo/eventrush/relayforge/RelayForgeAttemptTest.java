@@ -23,6 +23,7 @@ class RelayForgeAttemptTest {
     private HttpServer server;
     private RelayForgeClient client;
     private volatile String body = "[]";
+    private volatile int status = 200;
 
     @BeforeEach
     void setup() throws Exception {
@@ -31,7 +32,7 @@ class RelayForgeAttemptTest {
             requests.add(exchange.getRequestMethod() + "|" + exchange.getRequestURI() + "|"
                     + exchange.getRequestHeaders().getFirst("X-API-Key"));
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.sendResponseHeaders(status, bytes.length);
             try (var output = exchange.getResponseBody()) {
                 output.write(bytes);
             }
@@ -46,6 +47,43 @@ class RelayForgeAttemptTest {
         server.stop(0);
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {200, 204, 299, 400, 503})
+    void delegatesOneRetryAndReturnsReceiverOutcome(int receiverStatus) {
+        boolean successful = receiverStatus >= 200 && receiverStatus < 300;
+        body = "{\"httpStatus\":" + receiverStatus + ",\"successful\":" + successful + "}";
+        assertThat(client.retry(7)).isEqualTo(new RelayForgeClient.RetryResult(receiverStatus, successful));
+        assertThat(requests).containsExactly("POST|/api/v1/deliveries/7/retry|fixture-key");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "[]", "null", "{", "{\"httpStatus\":200,\"successful\":false}",
+            "{\"httpStatus\":503,\"successful\":true}", "{\"httpStatus\":600,\"successful\":false}",
+            "{\"httpStatus\":200.5,\"successful\":true}", "{\"httpStatus\":200,\"successful\":\"true\"}"})
+    void rejectsInvalidRetryProofWithoutRepeatingRequest(String response) {
+        body = response;
+        assertThatThrownBy(() -> client.retry(7)).isInstanceOf(IllegalStateException.class);
+        assertThat(requests).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {302, 409, 503})
+    void remoteRejectionsAreSanitizedAndNeverRetried(int remoteStatus) {
+        status = remoteStatus;
+        body = "private receiver details";
+        var failure = catchThrowable(() -> client.retry(7));
+        assertThat(failure).isInstanceOf(IllegalStateException.class)
+                .hasMessage("RelayForge returned HTTP " + remoteStatus);
+        if (remoteStatus == 409) assertThat(failure).isInstanceOf(RelayForgeClient.RemoteConflict.class);
+        assertThat(requests).hasSize(1);
+    }
+
+    @Test
+    void invalidRetryIdentityNeverSendsRequest() {
+        assertThatThrownBy(() -> client.retry(0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client.retry(-1)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(requests).isEmpty();
+    }
     private String attempt() {
         return """
                 {"id":9,"deliveryId":7,"attemptNumber":2,"httpStatus":503,
