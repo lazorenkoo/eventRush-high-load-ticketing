@@ -78,6 +78,34 @@ class ConcertEventListIntegrationTest {
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("CONCERT_NOT_FOUND"));
     }
 
+    @Test
+    void indexedHistoryStopsPaginationAtMaximumOffset() throws Exception {
+        jdbc.update("""
+                insert into outgoing_events(id,event_type,payload)
+                select gen_random_uuid(),'ticket.purchased',jsonb_build_object('concertId',?::text)::text
+                from generate_series(1,50002)
+                """, concert.toString());
+        mvc.perform(get(path).param("limit", "1").param("offset", "49999").header("X-Admin-Key", KEY))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hasMore").value(true))
+                .andExpect(jsonPath("$.truncated").value(false)).andExpect(jsonPath("$.nextOffset").value(50000));
+        mvc.perform(get(path).param("limit", "1").param("offset", "50000").header("X-Admin-Key", KEY))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.hasMore").value(true)).andExpect(jsonPath("$.truncated").value(true))
+                .andExpect(jsonPath("$.nextOffset").isEmpty());
+        mvc.perform(get(path).param("limit", "100").param("offset", "50000").header("X-Admin-Key", KEY))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.hasMore").value(false)).andExpect(jsonPath("$.truncated").value(false));
+        // Disable sequential scans only within this rolled-back test to check index eligibility.
+        jdbc.execute("analyze outgoing_events");
+        jdbc.execute("set local enable_seqscan=off");
+        var plan = jdbc.queryForList("""
+                explain select id,event_type,created_at,published_at,attempt_count,next_attempt_at
+                from outgoing_events where payload::jsonb->>'concertId'=?
+                order by created_at desc,id desc limit 101
+                """, String.class, concert.toString());
+        org.assertj.core.api.Assertions.assertThat(String.join("\n", plan))
+                .contains("Index Scan using outgoing_events_concert_history").doesNotContain("Sort");
+    }
     @ParameterizedTest
     @ValueSource(strings = {"limit=0", "limit=101", "offset=-1", "offset=50001", "limit=invalid"})
     void rejectsInvalidPages(String query) throws Exception {
