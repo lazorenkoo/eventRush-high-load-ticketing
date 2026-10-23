@@ -46,6 +46,22 @@ public class EventDeliveryController {
         }
     }
 
+    @GetMapping("/deliveries/{deliveryId}/attempts")
+    public ResponseEntity<List<RelayForgeClient.AttemptView>> attempts(@PathVariable UUID concertId,
+            @PathVariable UUID eventId, @PathVariable long deliveryId) {
+        if (deliveryId <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_DELIVERY_ID");
+        }
+        History history = deliveries(concertId, eventId).getBody();
+        if (history == null || history.deliveries().stream().noneMatch(row -> row.id() == deliveryId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "EVENT_DELIVERY_NOT_FOUND");
+        }
+        try {
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(relay.attempts(deliveryId));
+        } catch (IllegalStateException error) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "RELAYFORGE_UNAVAILABLE");
+        }
+    }
     private record PublishedEvent(String type, String payload) {}
 
     public record History(UUID eventId, long relayEventId, List<RelayForgeClient.DeliveryView> deliveries) {}
