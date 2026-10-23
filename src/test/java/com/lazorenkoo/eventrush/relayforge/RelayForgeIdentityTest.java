@@ -29,6 +29,7 @@ class RelayForgeIdentityTest {
     private RelayForgeClient client;
     private volatile String body = "{\"id\":42}";
     private volatile boolean stall;
+    private volatile int responseStatus = 201;
 
     @BeforeEach
     void setup() throws Exception {
@@ -39,7 +40,8 @@ class RelayForgeIdentityTest {
                     + new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             try {
                 byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-                exchange.sendResponseHeaders(201, bytes.length == 0 ? -1 : bytes.length);
+                exchange.getResponseHeaders().set("Location", "/redirected");
+                exchange.sendResponseHeaders(responseStatus, bytes.length == 0 ? -1 : bytes.length);
                 if (stall) {
                     exchange.getResponseBody().write(bytes, 0, 1);
                     exchange.getResponseBody().flush();
@@ -83,6 +85,28 @@ class RelayForgeIdentityTest {
         body = value;
         assertThatThrownBy(() -> client.publishedId(UUID.randomUUID(), "ticket.purchased", "{}"))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {65536, 65537})
+    void enforcesBodyLimitAtExactBoundary(int size) {
+        body += " ".repeat(size - body.length());
+        if (size == 65536) {
+            assertThat(client.publishedId(UUID.randomUUID(), "ticket.purchased", "{}")).isEqualTo(42);
+        } else {
+            assertThatThrownBy(() -> client.publishedId(UUID.randomUUID(), "ticket.purchased", "{}"))
+                    .isInstanceOf(IllegalStateException.class).hasMessage("RelayForge request failed");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {302, 401, 409, 503})
+    void rejectsRemoteErrorsWithoutFollowingRedirectsOrLeakingBody(int status) {
+        responseStatus = status;
+        body = "private response details";
+        assertThatThrownBy(() -> client.publishedId(UUID.randomUUID(), "ticket.purchased", "{}"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("RelayForge returned HTTP " + status);
+        assertThat(requests).hasSize(1);
     }
 
     @ParameterizedTest
