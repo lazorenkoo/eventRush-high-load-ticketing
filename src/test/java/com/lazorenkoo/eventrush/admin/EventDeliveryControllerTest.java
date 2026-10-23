@@ -46,6 +46,51 @@ class EventDeliveryControllerTest {
     }
 
     @Test
+    void returnsAttemptsOnlyForDeliveryBelongingToScopedEvent() throws Exception {
+        published(true);
+        when(relay.publishedId(event, "ticket.purchased", payload)).thenReturn(42L);
+        when(relay.deliveries(42)).thenReturn(List.of(
+                new RelayForgeClient.DeliveryView(7, 42, 3, "FAILED", 503, 2, null, null)));
+        when(relay.attempts(7)).thenReturn(List.of(
+                new RelayForgeClient.AttemptView(9, 7, 2, 503, null, "FAILED")));
+        mvc.perform(get(path + "/7/attempts").header("X-Admin-Key", KEY)).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$[0].deliveryId").value(7))
+                .andExpect(jsonPath("$[0].attemptNumber").value(2))
+                .andExpect(jsonPath("$[0].error").doesNotExist());
+        mvc.perform(get(path + "/8/attempts").header("X-Admin-Key", KEY)).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("EVENT_DELIVERY_NOT_FOUND"));
+        verify(relay).attempts(7);
+        verify(relay, never()).attempts(8);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "-1", "invalid"})
+    void malformedDeliveryIdentityNeverCallsDatabaseOrRemote(String id) throws Exception {
+        mvc.perform(get(path + "/" + id + "/attempts").header("X-Admin-Key", KEY))
+                .andExpect(status().isBadRequest()).andExpect(header().string("Cache-Control", "no-store"));
+        verifyNoInteractions(jdbc, relay);
+    }
+
+    @Test
+    void unauthenticatedAttemptRequestNeverContactsDependencies() throws Exception {
+        mvc.perform(get(path + "/7/attempts")).andExpect(status().isUnauthorized());
+        verifyNoInteractions(jdbc, relay);
+    }
+
+    @Test
+    void attemptHistoryFailureIsSanitizedAndCannotLeakRemoteDetails() throws Exception {
+        published(true);
+        when(relay.publishedId(event, "ticket.purchased", payload)).thenReturn(42L);
+        when(relay.deliveries(42)).thenReturn(List.of(
+                new RelayForgeClient.DeliveryView(7, 42, 3, "FAILED", 503, 2, null, null)));
+        when(relay.attempts(7)).thenThrow(new IllegalStateException("private destination"));
+        mvc.perform(get(path + "/7/attempts").header("X-Admin-Key", KEY))
+                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("RELAYFORGE_UNAVAILABLE"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("private"))));
+    }
+    @Test
     void returnsScopedSummaryWithExactOriginalPublicationIdentity() throws Exception {
         published(true);
         when(relay.publishedId(event, "ticket.purchased", payload)).thenReturn(42L);
