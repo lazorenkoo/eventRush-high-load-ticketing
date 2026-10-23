@@ -1,4 +1,4 @@
-"""Verify four competing buyers and one stopped buyer through the real dispatcher."""
+"""Verify competing CSV buyers, a concurrent manual purchase and dispatcher stop."""
 import datetime
 import importlib.util
 import json
@@ -40,6 +40,26 @@ def progress(path):
     return value
 
 
+def manual_purchase(concert, seat, gate_path, path):
+    entry = request("POST", "/api/v1/gates/" + gate_path.rsplit("/", 1)[1] + "/join")
+    token = entry["queueToken"]
+    participant = request("POST", "/api/v1/participants", {
+        "concertId": concert, "seatId": seat, "queueToken": token,
+        "firstName": "Manual", "lastName": "Check"})["id"]
+    assert progress(path)["running"] > 0, "Manual buyer did not overlap test workers"
+    request("POST", gate_path + "/open", admin=True, crowdgate=True)
+    eventually(lambda: request("GET", "/api/v1/queue/" + token)["status"] == "ADMITTED", "Manual admission")
+    issued = request("POST", "/api/v1/queue/" + token + "/admission-token")["admissionToken"]
+    request("POST", "/api/v1/admission/exchange", {"concertId": concert, "admissionToken": issued})
+    reservation = request("POST", "/api/v1/seats/" + seat + "/reserve?participantId=" + participant)["id"]
+    request("POST", "/api/v1/reservations/" + reservation + "/pay", {"mode": "SUCCESS"})
+    eventually(lambda: request("GET", "/api/v1/reservations/" + reservation)["status"] == "CONFIRMED",
+               "Manual payment")
+    eventually(lambda: any(item["reservationId"] == reservation for item in request("GET", "/api/v1/me/tickets")),
+               "Manual ticket")
+    return participant
+
+
 def main():
     now = datetime.datetime.now(datetime.timezone.utc)
     gate = request("POST", "/api/v1/admin/gates", {
@@ -49,15 +69,18 @@ def main():
         "name": "Dispatcher verification", "startsAt": (now + datetime.timedelta(days=1)).isoformat(),
         "saleStartsAt": (now - datetime.timedelta(minutes=1)).isoformat(), "crowdgateGateId": gate}, admin=True)["id"]
     admin = "/api/v1/admin/concerts/" + concert
-    request("POST", admin + "/seats", {"seats": [
-        {"section": "CHECK", "row": "1", "number": seat, "price": 25} for seat in (1, 2, 3)]}, admin=True)
+    seats = request("POST", admin + "/seats", {"seats": [
+        {"section": "CHECK", "row": "1", "number": seat, "price": 25} for seat in (1, 2, 3, 4)]}, admin=True)
     request("POST", admin + "/open", admin=True)
     gate_path = "/api/v1/admin/gates/" + gate
     request("POST", gate_path + "/open", admin=True, crowdgate=True)
+    request("POST", gate_path + "/pause", admin=True, crowdgate=True)
     path = upload(admin, [1, 1, 2, 2])
     complete = False
     try:
         assert request("POST", path + "/start", admin=True)["status"] == "RUNNING", "Start rejected"
+        eventually(lambda: progress(path)["running"] == 2, "Initial queued test workers")
+        manual = manual_purchase(concert, seats[2], gate_path, path)
 
         def finished():
             value = progress(path)
@@ -67,13 +90,25 @@ def main():
         assert result["succeeded"] == 2 and result["unavailable"] == 2, "Seat competition mismatch"
         assert result["failed"] == 0 and result["cancelled"] == 0, "Unexpected failed clients"
         stats = request("GET", admin + "/stats", admin=True)
-        assert stats["sold"] == 2 and stats["revenue"] == 50, "Duplicate sale or wrong revenue"
+        assert stats["sold"] == 3 and stats["revenue"] == 75, "Duplicate sale or wrong revenue"
+        people = request("GET", admin + "/activity?source=MANUAL&q=Manual", admin=True)
+        assert len(people) == 1 and people[0]["id"] == manual, "Manual activity search mismatch"
+        assert people[0]["state"] == "PURCHASED" and people[0]["seatNumber"] == 3, "Manual result mismatch"
+        tests = request("GET", admin + "/activity?source=TEST&q=Test", admin=True)
+        assert len(tests) == 4 and all(item["source"] == "TEST" for item in tests), "Test activity mismatch"
+
+        def manual_journal():
+            entries = request("GET", admin + "/journal?source=MANUAL&q=" + manual, admin=True)["items"]
+            assert all(item["participantId"] == manual for item in entries), "Journal identity leak"
+            return {"TICKET", "ACCOUNTING", "NOTIFICATION"}.issubset({item["kind"] for item in entries})
+
+        eventually(manual_journal, "Searchable manual downstream journal")
         complete = True
     finally:
         if not complete:
             request("POST", path + "/stop", admin=True)
     request("POST", gate_path + "/pause", admin=True, crowdgate=True)
-    stopped_path = upload(admin, [3])
+    stopped_path = upload(admin, [4])
     try:
         request("POST", stopped_path + "/start", admin=True)
         eventually(lambda: progress(stopped_path)["running"] == 1, "Waiting client claim")
@@ -89,7 +124,7 @@ def main():
     finally:
         request("POST", stopped_path + "/stop", admin=True)
     print(json.dumps({"result": "PASS", "concertId": concert,
-                      "verified": "CSV, start, bounded progress, two sales, two conflicts, waiting client stop"}))
+                      "verified": "concurrent MANUAL/TEST buyers, three sales, two conflicts, search, journal, stop"}))
 
 
 if __name__ == "__main__":
