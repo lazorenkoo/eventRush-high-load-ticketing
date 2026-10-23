@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync('load/buyers.js', 'utf8').replace(/^import .*;\r?\n/gm, '')
   .replace('export const options', 'const options').replace('export function setup', 'function setup')
-  .replace('export default function', 'function buyer') + '\nthis.api = {options, setup, buyer};';
+  .replace('export default function', 'function buyer') + '\nthis.api = {options, setup, buyer, request};';
 const seat = '00000000-0000-0000-0000-000000000001';
 
 function load(env = {}, reply = () => ({})) {
@@ -15,7 +15,7 @@ function load(env = {}, reply = () => ({})) {
       calls.push({method, url, body, options});
       const value = reply(method, url, body);
       return {status: value.status || 200, json: () => value.body || {}};
-    }, post(url) { calls.push({method: 'POST', url}); }},
+    }, post(url, body, options) { calls.push({method: 'POST', url, body, options}); }},
     check: (value, checks) => Object.values(checks).every(check => check(value)),
     fail: message => { throw new Error(message); }, sleep() {},
     Counter: function (name) { this.add = value => { counters[name] = (counters[name] || 0) + value; }; },
@@ -85,4 +85,25 @@ test('payment initiation requires 202 before confirming purchase', () => {
     assert.equal(value.counters.purchases, undefined);
     assert.equal(value.calls.at(-1).url.endsWith('/admission/logout'), true);
   }
+});
+
+test('metric names discard queue identities queries and raw URL system tags', () => {
+  const value = load();
+  const other = '00000000-0000-0000-0000-000000000002';
+  for (const id of [seat, other]) {
+    value.api.request('GET', `/api/v1/queue/${id}:${id}/admission-token?visitor=${id}`);
+    value.api.request('POST', `/api/v1/seats/${id}/reserve?participantId=${id}`);
+  }
+  assert.equal(value.calls[0].options.tags.name, '/api/v1/queue/:token/admission-token');
+  assert.equal(value.calls[2].options.tags.name, value.calls[0].options.tags.name);
+  assert.equal(value.calls[1].options.tags.name, '/api/v1/seats/:id/reserve');
+  assert.equal(value.calls[3].options.tags.name, value.calls[1].options.tags.name);
+  assert.equal(value.api.options.systemTags.includes('url'), false);
+  assert.equal(value.api.options.systemTags.includes('name'), true);
+});
+test('logout keeps a constant metric label and cannot redirect', () => {
+  const value = flow();
+  value.api.buyer({gate: 'gate', seats: [seat]});
+  assert.equal(value.calls.at(-1).options.tags.name, '/api/v1/admission/logout');
+  assert.equal(value.calls.at(-1).options.redirects, 0);
 });
