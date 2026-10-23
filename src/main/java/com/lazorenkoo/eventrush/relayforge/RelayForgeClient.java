@@ -2,6 +2,7 @@ package com.lazorenkoo.eventrush.relayforge;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,9 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 @Component
 @ConditionalOnProperty(name = "eventrush.relayforge.enabled", havingValue = "true")
@@ -49,6 +53,44 @@ public class RelayForgeClient {
         this.eventsUri = baseUrl.resolve("/api/v1/events");
         this.apiKey = apiKey;
         this.requestTimeout = requestTimeout;
+    }
+
+    public long publishedId(UUID eventId, String type, String payload) {
+        Objects.requireNonNull(eventId, "eventId");
+        try {
+            String body = mapper.writeValueAsString(Map.of("type", type, "payload", payload));
+            var request = HttpRequest.newBuilder(eventsUri).timeout(requestTimeout)
+                    .header("Content-Type", "application/json").header("X-API-Key", apiKey)
+                    .header("Idempotency-Key", eventId.toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+            JsonNode value = json(request).path("id");
+            if (!value.isIntegralNumber() || !value.canConvertToLong() || value.longValue() <= 0) {
+                throw new IllegalStateException("Invalid RelayForge event identity");
+            }
+            return value.longValue();
+        } catch (JsonProcessingException error) {
+            throw new IllegalArgumentException("RelayForge event cannot be serialized");
+        }
+    }
+
+    private JsonNode json(HttpRequest request) {
+        var pending = http.sendAsync(request, ignored -> new BoundedResponseBody());
+        try {
+            var response = pending.get(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("RelayForge returned HTTP " + response.statusCode());
+            }
+            JsonNode value = mapper.readTree(response.body());
+            if (value == null) throw new IllegalStateException("Invalid RelayForge response");
+            return value;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("RelayForge request interrupted");
+        } catch (IOException | ExecutionException | TimeoutException error) {
+            throw new IllegalStateException("RelayForge request failed");
+        } finally {
+            if (!pending.isDone()) pending.cancel(true);
+        }
     }
 
     public void publish(UUID eventId, String type, String payload) {
