@@ -26,7 +26,7 @@ function fixture(change = () => {}) {
     },
   });
   vm.runInContext(source, context);
-  return {calls, reserved, statuses, run: signal => context.buy({id: 'concert', crowdgateGateId: 'gate'}, 'seat',
+  return {calls, reserved, statuses, run: (signal, selector = 'seat') => context.buy({id: 'concert', crowdgateGateId: 'gate'}, selector,
     {firstName: 'First', lastName: 'Last'}, {signal, onReserved: value => reserved.push(value),
       onStatus: value => statuses.push(value)})};
 }
@@ -79,4 +79,28 @@ test('pending payment keeps reservation recovery and bounded heartbeats', async 
   assert.equal(value.reserved.length, 1);
   assert.equal(value.calls.filter(call => call.path.endsWith('/heartbeat')).length, 2);
   assert.equal(value.calls.filter(call => call.path.endsWith('/pay')).length, 1);
+});
+
+test('deferred seat lookup happens only after exchange and before participant registration', async () => {
+  const value = fixture((path, response) => {
+    if (path.includes('/concerts/concert/seats')) response.body = [{id: 'seat', number: 1}];
+  });
+  const result = await value.run(undefined, async request => {
+    assert.equal(value.calls.at(-1).path, '/api/v1/admission/exchange');
+    assert.equal(value.calls.some(call => call.path.endsWith('/participants')), false);
+    const rows = await request('GET', '/api/v1/concerts/concert/seats?limit=100');
+    return rows[0].id;
+  });
+  assert.equal(result.status, 'CONFIRMED');
+  const index = value.calls.findIndex(call => call.path.endsWith('/participants'));
+  assert.match(value.calls[index - 1].path, /concerts\/concert\/seats/);
+  assert.equal(JSON.parse(value.calls[index].options.body).seatId, 'seat');
+});
+test('failed or empty deferred selection cannot register reserve or charge', async () => {
+  for (const selector of [async () => null, async () => { throw new Error('Seat missing'); }]) {
+    const value = fixture();
+    await assert.rejects(value.run(undefined, selector));
+    assert.equal(value.calls.some(call => /participants|reserve|\/pay/.test(call.path)), false);
+    assert.equal(value.reserved.length, 0);
+  }
 });
