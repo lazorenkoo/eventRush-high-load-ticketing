@@ -178,10 +178,34 @@ public class RelayForgeClient {
                                Integer httpStatus, int attemptCount,
                                Instant nextAttemptAt, Instant completedAt) {}
 
+    public RetryResult retry(long deliveryId) {
+        if (deliveryId <= 0) throw new IllegalArgumentException("Delivery identity must be positive");
+        var uri = eventsUri.resolve("/api/v1/deliveries/" + deliveryId + "/retry");
+        var request = HttpRequest.newBuilder(uri).timeout(requestTimeout).header("X-API-Key", apiKey)
+                .POST(HttpRequest.BodyPublishers.noBody()).build();
+        JsonNode response = json(request);
+        JsonNode code = response.path("httpStatus");
+        JsonNode successful = response.path("successful");
+        if (!code.isIntegralNumber() || !code.canConvertToInt() || code.intValue() < 100
+                || code.intValue() > 599 || !successful.isBoolean()
+                || successful.booleanValue() != (code.intValue() >= 200 && code.intValue() < 300)) {
+            throw new IllegalStateException("Invalid RelayForge retry response");
+        }
+        return new RetryResult(code.intValue(), successful.booleanValue());
+    }
+
+    public record RetryResult(int httpStatus, boolean successful) {}
+
+    public static final class RemoteConflict extends IllegalStateException {
+        private RemoteConflict() {
+            super("RelayForge returned HTTP 409");
+        }
+    }
     private JsonNode json(HttpRequest request) {
         var pending = http.sendAsync(request, ignored -> new BoundedResponseBody());
         try {
             var response = pending.get(requestTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            if (response.statusCode() == 409) throw new RemoteConflict();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("RelayForge returned HTTP " + response.statusCode());
             }
