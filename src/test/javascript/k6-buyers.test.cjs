@@ -38,9 +38,10 @@ test('setup rejects closed concert and absent seat fixture', () => {
   assert.throws(() => load({}, () => ({body: {status: 'ON_SALE'}})).api.setup(), /SEAT_IDS/);
 });
 
-function flow(conflict, wrongIdentity = false) {
+function flow(conflict, wrongIdentity = false, paymentStatus = 202) {
   return load({}, (method, url) => {
     if (url.endsWith('/join')) return {body: {queueToken: 'gate:token', status: 'ADMITTED'}};
+    if (url.endsWith('/pay')) return {status: paymentStatus};
     if (url.endsWith('/participants')) return {status: 201, body: {id: 'participant'}};
     if (url.endsWith('/admission-token')) return {body: {admissionToken: 'signed'}};
     if (url.includes('/reserve?')) return conflict
@@ -72,6 +73,15 @@ test('expected seat contention is counted and never charged', () => {
 test('unknown conflict and changed reservation proof fail but clean up', () => {
   for (const value of [flow('OTHER_CONFLICT'), flow(null, true)]) {
     assert.throws(() => value.api.buyer({gate: 'gate', seats: [seat]}));
+    assert.equal(value.counters.purchases, undefined);
+    assert.equal(value.calls.at(-1).url.endsWith('/admission/logout'), true);
+  }
+});
+
+test('payment initiation requires 202 before confirming purchase', () => {
+  for (const status of [200, 201, 204, 500]) {
+    const value = flow(null, false, status);
+    assert.throws(() => value.api.buyer({gate: 'gate', seats: [seat]}), /HTTP/);
     assert.equal(value.counters.purchases, undefined);
     assert.equal(value.calls.at(-1).url.endsWith('/admission/logout'), true);
   }
