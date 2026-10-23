@@ -32,6 +32,8 @@ jobs:
         run: mvn --batch-mode --no-transfer-progress verify
       - name: Python fixture tests
         run: python -m unittest discover -s src/test/python -v
+      - name: k6 buyer contract tests
+        run: node --test src/test/javascript/*.test.cjs
       - name: Browser script syntax
         run: find src/main/resources/static -name '*.js' -exec node --check {} \;
       - name: Publish Java test reports
