@@ -89,6 +89,51 @@ class RelayForgeDeliveryTest {
                 .hasMessage("Invalid RelayForge delivery response");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"PENDING", "PROCESSING", "SUCCEEDED", "FAILED"})
+    void acceptsAllRemoteStatusesAndNullableSchedulingFields(String status) throws Exception {
+        var row = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(delivery());
+        row.put("status", status).putNull("httpStatus").putNull("nextAttemptAt");
+        row.put("completedAt", "2026-10-23T02:00:00Z");
+        body = "[" + row + "]";
+        var summary = client.deliveries(42).getFirst();
+        assertThat(summary.status()).isEqualTo(status);
+        assertThat(summary.httpStatus()).isNull();
+        assertThat(summary.nextAttemptAt()).isNull();
+        assertThat(summary.completedAt()).isEqualTo(Instant.parse("2026-10-23T02:00:00Z"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"id", "eventId", "endpointId", "status", "attemptCount", "httpStatus",
+            "nextAttemptAt", "completedAt"})
+    void rejectsIncompleteRows(String field) throws Exception {
+        var row = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(delivery());
+        row.remove(field);
+        body = "[" + row + "]";
+        assertThatThrownBy(() -> client.deliveries(42)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Invalid RelayForge delivery response");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "null", "[null]", "[", "\"private details\""})
+    void rejectsNonArrayMalformedAndNullResponses(String response) {
+        body = response;
+        assertThatThrownBy(() -> client.deliveries(42)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void acceptsExactlyOneHundredDistinctDeliveries() throws Exception {
+        var rows = mapper.createArrayNode();
+        for (int id = 1; id <= 100; id++) {
+            var row = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(delivery());
+            rows.add(row.put("id", id));
+        }
+        body = rows.toString();
+        assertThat(client.deliveries(42)).hasSize(100);
+        body = " ".repeat(65537);
+        assertThatThrownBy(() -> client.deliveries(42)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("RelayForge request failed");
+    }
     @Test
     void rejectsDuplicateIdentitiesAndOversizedCollections() {
         body = "[" + delivery() + "," + delivery() + "]";
