@@ -14,13 +14,15 @@ const unavailable = new Counter('seats_unavailable');
 export const options = {
   scenarios: {buyers: {executor: 'shared-iterations', vus: Math.min(vus, clients),
     iterations: clients, maxDuration: __ENV.MAX_DURATION || '30m', gracefulStop: '30s'}},
+  systemTags: ['status', 'method', 'name', 'scenario', 'expected_response'],
   thresholds: {checks: ['rate==1']},
 };
 
 function request(method, path, body, expected = [200, 201, 204]) {
   const response = http.request(method, base + path, body === undefined ? null : JSON.stringify(body), {
     headers: {'Origin': __ENV.ORIGIN || base, 'Content-Type': 'application/json'},
-    redirects: 0, timeout: '5s', tags: {name: path.replace(/[0-9a-f-]{36}/g, ':id')},
+    redirects: 0, timeout: '5s', tags: {name: path.split('?')[0]
+      .replace(/\/queue\/[^/]+/, '/queue/:token').replace(/[0-9a-f-]{36}/g, ':id')},
   });
   if (!check(response, {'expected HTTP outcome': r => expected.includes(r.status)})) fail(`HTTP ${response.status}`);
   return response;
@@ -80,6 +82,7 @@ export default function (data) {
     if (!check(confirmed, {'purchase confirmed': value => value})) fail('Payment timeout');
     purchased.add(1);
   } finally {
-    http.post(base + '/api/v1/admission/logout', null, {headers: {Origin: __ENV.ORIGIN || base}, timeout: '5s'});
+    http.post(base + '/api/v1/admission/logout', null, {headers: {Origin: __ENV.ORIGIN || base}, timeout: '5s',
+      redirects: 0, tags: {name: '/api/v1/admission/logout'}});
   }
 }
