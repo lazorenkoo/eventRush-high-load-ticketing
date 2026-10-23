@@ -28,9 +28,10 @@ export async function buyNamed(concert, seatId, names, {signal, onStatus = () =>
   if (typeof token !== 'string' || !token.startsWith(concert.crowdgateGateId + ':')) {
     throw new Error('Invalid queue response.');
   }
-  const participant = await request('POST', '/api/v1/participants', {
+  const register = () => request('POST', '/api/v1/participants', {
     concertId: concert.id, seatId, queueToken: token, firstName: names.firstName, lastName: names.lastName,
   });
+  let participant = typeof seatId === 'function' ? null : await register();
   let current = entry;
   while (current.status === 'WAITING' && Date.now() < deadline) {
     onStatus(`Waiting in queue — position ${current.position}`);
@@ -41,6 +42,12 @@ export async function buyNamed(concert, seatId, names, {signal, onStatus = () =>
   onStatus('Entering sale');
   const admission = await request('POST', `/api/v1/queue/${encodeURIComponent(token)}/admission-token`);
   await request('POST', '/api/v1/admission/exchange', {concertId: concert.id, admissionToken: admission.admissionToken});
+  if (typeof seatId === 'function') {
+    onStatus('Selecting seat');
+    seatId = await seatId(request);
+    if (typeof seatId !== 'string' || !seatId) throw new Error('Seat unavailable.');
+    participant = await register();
+  }
   onStatus('Reserving seat');
   const reservation = await request('POST', `/api/v1/seats/${seatId}/reserve?participantId=${participant.id}`);
   if (reservation.seatId !== seatId || reservation.status !== 'ACTIVE') throw new Error('Invalid reservation response.');
