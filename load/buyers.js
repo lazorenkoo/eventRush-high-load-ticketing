@@ -62,7 +62,7 @@ export default function (data) {
     const reservation = reserved.json();
     if (reservation.seatId !== seat || reservation.status !== 'ACTIVE') fail('Invalid reservation');
     const path = `/api/v1/reservations/${reservation.id}`;
-    request('POST', path + '/pay', {mode: 'SUCCESS'});
+    request('POST', path + '/pay', {mode: 'SUCCESS'}, [202]);
     const paymentDeadline = Date.now() + 90000;
     let confirmed = false;
     let heartbeatAt = Date.now() + 30000;
