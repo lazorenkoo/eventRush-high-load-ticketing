@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -58,6 +59,29 @@ public class EventDeliveryController {
         }
         try {
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(relay.attempts(deliveryId));
+        } catch (IllegalStateException error) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "RELAYFORGE_UNAVAILABLE");
+        }
+    }
+    @PostMapping("/deliveries/{deliveryId}/retry")
+    public ResponseEntity<RelayForgeClient.RetryResult> retry(@PathVariable UUID concertId,
+            @PathVariable UUID eventId, @PathVariable long deliveryId) {
+        if (deliveryId <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_DELIVERY_ID");
+        }
+        History history = deliveries(concertId, eventId).getBody();
+        var delivery = history == null ? null : history.deliveries().stream()
+                .filter(row -> row.id() == deliveryId).findFirst().orElse(null);
+        if (delivery == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "EVENT_DELIVERY_NOT_FOUND");
+        }
+        if (!"FAILED".equals(delivery.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "DELIVERY_NOT_RETRYABLE");
+        }
+        try {
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(relay.retry(deliveryId));
+        } catch (RelayForgeClient.RemoteConflict error) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "DELIVERY_NOT_RETRYABLE");
         } catch (IllegalStateException error) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "RELAYFORGE_UNAVAILABLE");
         }
