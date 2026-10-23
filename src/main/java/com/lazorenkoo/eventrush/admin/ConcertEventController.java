@@ -44,8 +44,9 @@ public class ConcertEventController {
                 row.getInt("attempt_count"), row.getTimestamp("next_attempt_at").toInstant()),
                 concertId.toString(), limit + 1, offset);
         boolean hasMore = rows.size() > limit;
+        boolean truncated = hasMore && offset + limit > 50000;
         var page = new Page(List.copyOf(rows.subList(0, Math.min(rows.size(), limit))), hasMore,
-                hasMore ? offset + limit : null);
+                hasMore && !truncated ? offset + limit : null, truncated);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(page);
     }
 
@@ -56,5 +57,5 @@ public class ConcertEventController {
     public record Event(UUID id, String type, Instant createdAt, Instant publishedAt,
                         int publishAttempts, Instant nextPublishAttemptAt) {}
 
-    public record Page(List<Event> items, boolean hasMore, Integer nextOffset) {}
+    public record Page(List<Event> items, boolean hasMore, Integer nextOffset, boolean truncated) {}
 }
