@@ -3,22 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Statistics</title>
+  <title>EventRush control room</title>
   <link rel="stylesheet" href="/app.css">
-  <script type="module" src="/admin.js"></script>
-  <script type="module" src="/queue-stats.js"></script>
+  <link rel="stylesheet" href="/demo.css">
+  <script type="module">
+    import {mountAdminDashboard} from './admin-dashboard.js';
+    import {mountMetrics} from './dashboard-metrics.js';
+    import {mountConsoleJournal} from './console-journal.js';
+    const close = mountAdminDashboard(document.querySelector('main'), mountMetrics, mountConsoleJournal);
+    const options = new URLSearchParams(location.search);
+    if (options.get('console') === '1') document.body.classList.add('console-window');
+    const concertId = options.get('concertId');
+    if (/^[0-9a-f-]{36}$/i.test(concertId || '')) document.querySelector('input[maxlength="36"]').value = concertId;
+    addEventListener('pagehide', close, {once: true});
+  </script>
 </head>
 <body>
   <main>
     <a href="/">EventRush</a>
-    <h1>Statistics</h1>
-    <form id="stats">
-      <p><label>Admin key <input id="key" type="password" autocomplete="off" required></label></p>
-      <p><label>Concert ID <input id="concert" required></label></p>
-      <button>Refresh</button>
-    </form>
-    <p id="message" role="status"></p>
-    <table id="result"></table>
+    <h1>EventRush / Control room</h1>
   </main>
 </body>
 </html>

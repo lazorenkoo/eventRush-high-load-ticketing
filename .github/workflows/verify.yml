@@ -1,0 +1,45 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Java unit and PostgreSQL integration tests
+        run: mvn --batch-mode --no-transfer-progress verify
+      - name: Python fixture tests
+        run: python -m unittest discover -s src/test/python -v
+      - name: k6 buyer contract tests
+        run: node --test src/test/javascript/*.test.cjs
+      - name: Browser script syntax
+        run: find src/main/resources/static -name '*.js' -exec node --check {} \;
+      - name: Publish Java test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-test-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore

@@ -28,16 +28,20 @@ export function mountQueue(concert, parent) {
     parent.dispatchEvent(new Event('admissionlost'));
   }
 
-  function admitted() {
+  function admitted(queueToken) {
     status.textContent = 'Admitted';
     stream?.close();
     clearInterval(heartbeat);
     heartbeat = setInterval(() => request('/api/v1/admission/heartbeat').catch(fail), 30_000);
-    parent.dispatchEvent(new CustomEvent('admitted', {detail: concert}));
+    parent.dispatchEvent(new CustomEvent('admitted', {detail: {...concert, admittedQueueToken: queueToken}}));
   }
 
   async function update(entry, token) {
     if (abort.signal.aborted || exchanging) return;
+    if (typeof entry.queueToken !== 'string'
+        || !entry.queueToken.startsWith(concert.crowdgateGateId + ':') || entry.queueToken.length !== 73) {
+      throw new Error('Invalid queue identity.');
+    }
     status.textContent = `${entry.status} — position ${entry.position}, queue ${entry.queueSize}`;
     if (entry.status === 'ADMITTED') {
       exchanging = true;
@@ -47,12 +51,12 @@ export function mountQueue(concert, parent) {
         token = issued.admissionToken;
       }
       await request('/api/v1/admission/exchange', {concertId: concert.id, admissionToken: token});
-      if (!abort.signal.aborted) admitted();
+      if (!abort.signal.aborted) admitted(entry.queueToken);
     } else if (entry.status === 'ACTIVE') {
       const response = await fetch(`/api/v1/concerts/${concert.id}/seats?limit=1`,
         {credentials: 'same-origin', cache: 'no-store', signal: abort.signal});
       if (!response.ok) throw new Error('Session unavailable. Wait for the gate session to expire, then retry.');
-      if (!abort.signal.aborted) admitted();
+      if (!abort.signal.aborted) admitted(entry.queueToken);
     } else if (entry.status !== 'WAITING') {
       throw new Error(`Queue status: ${entry.status}`);
     }

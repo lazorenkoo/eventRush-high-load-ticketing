@@ -18,6 +18,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:tc:postgresql:17.11:///load_leases_test",
@@ -62,7 +63,7 @@ class LoadClientLeasesIntegrationTest {
             for (int index = 0; index < 8; index++) futures.add(pool.submit(() -> {
                 ready.countDown();
                 if (!start.await(3, TimeUnit.SECONDS)) throw new AssertionError("Barrier timed out");
-                return leases.claim(run);
+                return leases.claim(run, 1);
             }));
             try {
                 assertThat(ready.await(3, TimeUnit.SECONDS)).isTrue();
@@ -74,6 +75,36 @@ class LoadClientLeasesIntegrationTest {
             assertThat(claimed).hasSize(3).doesNotHaveDuplicates();
             assertThat(leases.claim(run)).isEmpty();
         }
+    }
+
+    @Test
+    void localCapacityBoundsClaimsWithoutOverridingRunConcurrency() {
+        lifecycle.start(concert, run);
+        var first = leases.claim(run, 1);
+        var second = leases.claim(run, 1);
+        var last = leases.claim(run, 100);
+        assertThat(first).hasSize(1);
+        assertThat(second).hasSize(1);
+        assertThat(last).hasSize(1);
+        var ids = new ArrayList<UUID>();
+        for (var batch : java.util.List.of(first, second, last)) {
+            for (var client : batch) ids.add(client.id());
+        }
+        assertThat(ids).hasSize(3).doesNotHaveDuplicates();
+        assertThat(leases.claim(run, 1)).isEmpty();
+        assertThat(jdbc.queryForObject("select count(*) from load_test_clients where run_id=? and status='RUNNING'",
+                Integer.class, run)).isEqualTo(3);
+        lifecycle.stop(concert, run);
+        assertThat(leases.claim(run, 100)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 0, 101, Integer.MAX_VALUE})
+    void invalidLocalCapacityCannotClaimAnyClients(int capacity) {
+        lifecycle.start(concert, run);
+        assertThatThrownBy(() -> leases.claim(run, capacity)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(jdbc.queryForObject("select count(*) from load_test_clients where run_id=? and status='PENDING'",
+                Integer.class, run)).isEqualTo(10);
     }
 
     @Test

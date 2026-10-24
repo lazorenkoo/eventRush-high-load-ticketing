@@ -36,6 +36,8 @@ public class ConcertStatsController {
                     select count(*) filter (where p.status = 'PENDING') as pending_payments,
                         count(*) filter (where p.status = 'SUCCESS') as successful_payments,
                         count(*) filter (where p.status = 'FAILED') as failed_payments,
+                        count(*) filter (where p.status = 'SUCCESS' and p.completed_at > current_timestamp - interval '60 seconds'
+                            and p.completed_at <= current_timestamp) as purchases_last_minute,
                         coalesce(sum(p.amount) filter (where p.status = 'SUCCESS'), 0) as revenue
                     from payments p join reservations r on r.id = p.reservation_id
                     join seats s on s.id = r.seat_id where s.concert_id = c.id
@@ -44,7 +46,7 @@ public class ConcertStatsController {
                 """, (row, index) -> new ConcertStats(row.getObject("id", UUID.class), row.getString("status"),
                 row.getLong("total_seats"), row.getLong("available"), row.getLong("reserved"), row.getLong("sold"),
                 row.getLong("pending_payments"), row.getLong("successful_payments"), row.getLong("failed_payments"),
-                row.getBigDecimal("revenue")), id);
+                row.getBigDecimal("revenue"), row.getLong("purchases_last_minute")), id);
         if (results.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "CONCERT_NOT_FOUND");
         }
@@ -53,6 +55,8 @@ public class ConcertStatsController {
 
     public record ConcertStats(UUID concertId, String status, long totalSeats, long available, long reserved,
                                long sold, long pendingPayments, long successfulPayments, long failedPayments,
-                               BigDecimal revenue) {
+                               BigDecimal revenue, long purchasesLastMinute) {
+        public int getThroughputWindowSeconds() { return 60; }
+        public double getPurchasesPerSecond() { return purchasesLastMinute / 60.0; }
     }
 }

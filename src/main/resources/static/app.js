@@ -1,10 +1,9 @@
 import {mountQueue} from './queue.js';
-import {mountSeats} from './seats.js';
+import {mountHallBuyer} from './hall-buyer.js';
 import {mountReservation} from './reservation.js';
 import {mountResults} from './results.js';
 
 const message = document.querySelector('#message');
-const concerts = document.querySelector('#concerts');
 const details = document.querySelector('#details');
 const reload = document.querySelector('#reload');
 mountResults(document.querySelector('main'));
@@ -20,7 +19,7 @@ details.addEventListener('reserved', event => {
 });
 details.addEventListener('admitted', event => {
   stopSeats();
-  stopSeats = mountSeats(event.detail, details);
+  stopSeats = mountHallBuyer(event.detail, details, restoreReservation);
 });
 details.addEventListener('admissionlost', () => stopSeats());
 
@@ -61,15 +60,9 @@ async function load() {
   message.textContent = 'Loading…';
   try {
     const items = await read('/api/v1/concerts?limit=100');
-    concerts.replaceChildren();
-    for (const concert of items) {
-      const item = text(concerts, 'li', '');
-      text(item, 'p', `${concert.name} — ${concert.status}`);
-      const button = text(item, 'button', 'Details');
-      button.type = 'button';
-      button.addEventListener('click', () => show(concert.id));
-    }
-    message.textContent = items.length ? '' : 'No concerts.';
+    const concert = items.find(item => item.name === 'EventRush 300 seats');
+    if (concert) await show(concert.id);
+    message.textContent = concert ? '' : 'The demonstration concert is not available.';
   } catch (error) { message.textContent = error.message; }
   finally { reload.disabled = false; }
 }
