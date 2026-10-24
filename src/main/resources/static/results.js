@@ -8,7 +8,8 @@ export function mountResults(parent) {
       target.append(node);
       return node;
     }
-    add('h2', resource === 'tickets' ? 'My tickets' : 'My notifications');
+    add('h2', resource === 'tickets' ? 'Tickets in this browser' : 'Notifications in this browser');
+    add('p', 'Includes earlier purchases by this browser visitor, across concerts.');
     const refresh = add('button', 'Refresh');
     const previous = add('button', 'Previous');
     const next = add('button', 'Next');
@@ -31,13 +32,15 @@ export function mountResults(parent) {
         const items = await response.json();
         table.replaceChildren();
         const heading = add('tr', '', table);
-        const columns = resource === 'tickets' ? ['Ticket', 'Reservation', 'Seat', 'Issued'] : ['Event', 'Received'];
+        const columns = resource === 'tickets' ? ['Ticket number', 'Reservation ID', 'Seat ID', 'Issued'] : ['Notification', 'Received'];
         for (const title of columns) add('th', title, heading);
         for (const item of items) {
           const row = add('tr', '', table);
           const values = resource === 'tickets'
             ? [item.ticketNumber, item.reservationId, item.seatId, new Date(item.issuedAt).toLocaleString('en-GB')]
-            : [item.eventType, new Date(item.createdAt).toLocaleString('en-GB')];
+            : [({'ticket.purchased': 'Purchase confirmed', 'ticket.reserved': 'Seat reserved',
+              'reservation.expired': 'Reservation expired', 'payment.failed': 'Payment failed'})[item.eventType] || item.eventType,
+              new Date(item.createdAt).toLocaleString('en-GB')];
           for (const value of values) add('td', value, row);
         }
         message.textContent = items.length ? '' : `No ${resource}.`;

@@ -4,7 +4,7 @@ import {mountActivity} from './activity-panel.js';
 import {mountJournal} from './journal-panel.js';
 import {mountEvents} from './event-panel.js';
 
-export function mountAdminDashboard(parent) {
+export function mountAdminDashboard(parent, mountOverview = () => () => {}, mountLog = mountJournal) {
   const section = document.createElement('section');
   const node = (tag, text, target = section) => {
     const element = document.createElement(tag);
@@ -28,6 +28,7 @@ export function mountAdminDashboard(parent) {
   const message = node('p');
   message.setAttribute('role', 'status');
   const content = node('div');
+  content.className = 'admin-layout';
   parent.append(section);
   let api;
   let cleanup = [];
@@ -58,9 +59,10 @@ export function mountAdminDashboard(parent) {
       const id = concert.value.trim();
       await api.stats(id);
       if (disposed || version !== generation) return;
+      cleanup.push(mountOverview(api, id, content));
       cleanup.push(mountLoadControls(api, id, content));
       cleanup.push(mountActivity(api, id, content));
-      cleanup.push(mountJournal(api, id, content));
+      cleanup.push(mountLog(api, id, content));
       cleanup.push(mountEvents(api, id, content));
       message.textContent = `Concert ${id} — administrator session open`;
     } catch (error) {

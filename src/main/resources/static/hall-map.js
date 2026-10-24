@@ -45,7 +45,9 @@ export function mountHallMap(parent, onSelect) {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(seat);
     }
-    for (const rowSeats of groups.values()) {
+    const rows = [...groups.values()].sort((a, b) => a[0].section.localeCompare(b[0].section, 'en', {numeric: true})
+      || a[0].row.localeCompare(b[0].row, 'en', {numeric: true}));
+    for (const rowSeats of rows) {
       rowSeats.sort((a, b) => a.number - b.number);
       const row = node('div', undefined, plan);
       row.className = 'hall-row';

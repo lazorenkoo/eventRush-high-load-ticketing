@@ -1,0 +1,45 @@
+:root { color-scheme: light; font-family: Inter, system-ui, sans-serif; color: #1b2737; background: #f2f4f8; }
+body { max-width: 1600px; margin: 32px auto; padding: 0 28px; }
+h1 { font-size: 30px; letter-spacing: -.8px; }
+h2, h3 { margin-top: 0; }
+button, input, select { font: inherit; padding: 9px 12px; margin: 4px; border: 1px solid #c3cbd8; border-radius: 7px; }
+button { cursor: pointer; background: #fff; color: #24364f; }
+button:hover:not(:disabled) { border-color: #2563eb; }
+button:disabled { cursor: default; opacity: .55; }
+label { display: inline-block; margin: 6px 12px 6px 0; }
+a { color: #2455ab; }
+section, .seat-checkout { background: white; border: 1px solid #dce1e9; border-radius: 12px; padding: 22px; margin: 18px 0; min-width: 0; }
+#details { border: 0; padding: 0; background: transparent; }
+.hall-buyer { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; align-items: start; }
+.seat-checkout { position: sticky; top: 24px; }
+.seat-checkout label, .seat-checkout input { display: block; width: 100%; box-sizing: border-box; margin-left: 0; }
+.seat-checkout button[type=submit] { background: #245be0; color: white; width: 100%; margin: 18px 0; }
+.concert-hall { overflow-x: auto; text-align: center; }
+.hall-stage { width: 65%; margin: 12px auto 32px; padding: 14px; border-radius: 50% 50% 5px 5px; background: #24344c; color: white; letter-spacing: 6px; }
+.seat-legend { color: #536176; font-size: 13px; }
+.hall-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 8px 0; }
+.row-label { width: 76px; flex-shrink: 0; text-align: right; font-size: 12px; color: #64748b; }
+.seat-blocks { display: flex; flex-wrap: wrap; gap: 5px; max-width: 760px; }
+.hall-seat { width: 30px; height: 30px; padding: 0; margin: 0; border-radius: 5px 5px 2px 2px; font-size: 10px; flex-shrink: 0; }
+.hall-seat.available { background: #d7dce3; border-color: #b9c1cd; }
+.hall-seat.occupied { background: #dd5662; border-color: #bd3545; color: white; opacity: 1; }
+.hall-seat.selected { background: #2563eb; border-color: #1747ba; color: white; box-shadow: 0 0 0 2px #bfdbfe; }
+.hall-seat.aisle { margin-left: 18px; }
+.admin-layout { display: grid; grid-template-columns: minmax(400px, 1fr) minmax(420px, .9fr); gap: 20px; align-items: start; }
+.admin-layout > section { grid-column: 1; margin: 0; overflow-x: auto; }
+.console-panel { grid-column: 2; grid-row: 1 / span 8; position: sticky; top: 20px; background: #05080d; color: #dbe6f5; padding: 20px; border-radius: 12px; min-width: 0; }
+.console-panel a { display: block; color: #9dcaff; margin-bottom: 14px; }
+.console-window .admin-layout { display: block; }
+.console-window .admin-layout > section { display: none; }
+.console-window .console-panel { position: static; }
+.console-panel input, .console-panel select { background: #1c2a40; color: #edf4ff; border-color: #40516c; max-width: 100%; }
+.console-output { height: 66vh; overflow-y: auto; font: 12px/1.65 Consolas, monospace; overflow-wrap: anywhere; }
+.console-line { padding: 10px 0; border-bottom: 1px solid #28364c; }
+.console-line small { display: block; color: #8497b4; font-size: 10px; }
+.console-time { color: #91a4c1; } .console-person { color: #9dcaff; } .console-state { color: #8ee6b4; }
+.console-line[data-state=FAILED] .console-state, .console-line[data-state=EXPIRED] .console-state { color: #ff9aa5; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e5e9f0; overflow-wrap: anywhere; }
+th { color: #536176; } pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+:focus-visible { outline: 3px solid #3b82f6; outline-offset: 3px; }
+@media (max-width: 1000px) { .admin-layout, .hall-buyer { display: block; } .console-panel, .seat-checkout { position: static; } body { padding: 0 12px; } }

@@ -8,6 +8,14 @@ export function mountConsoleJournal(api, concertId, parent) {
     return element;
   };
   node('h2', 'Live console');
+  const popout = node('a', 'Open console in separate window ↗');
+  popout.href = '/admin.html?console=1&concertId=' + encodeURIComponent(concertId);
+  popout.target = '_blank';
+  popout.rel = 'noopener';
+  popout.addEventListener('click', event => {
+    event.preventDefault();
+    window.open(popout.href, '_blank', 'noopener,width=1000,height=800');
+  });
   const search = node('input');
   Object.assign(search, {type: 'search', maxLength: 100, placeholder: 'Name, seat or operation ID'});
   search.setAttribute('aria-label', 'Search console');
