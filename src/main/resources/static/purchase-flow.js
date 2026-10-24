@@ -1,4 +1,6 @@
-export async function buyNamed(concert, seatId, names, {signal, onStatus = () => {}, onReserved = () => {}} = {}) {
+export async function buyNamed(concert, seatId, names, {
+  signal, onStatus = () => {}, onReserved = () => {}, admittedQueueToken,
+} = {}) {
   const deadline = Date.now() + 600000;
   async function request(method, path, body, accepted = [200, 201, 204]) {
     signal?.throwIfAborted();
@@ -22,11 +24,21 @@ export async function buyNamed(concert, seatId, names, {signal, onStatus = () =>
       signal?.addEventListener('abort', abort, {once: true});
     });
   }
-  onStatus('Joining queue');
-  const entry = await request('POST', `/api/v1/gates/${concert.crowdgateGateId}/join`);
+  if (admittedQueueToken !== undefined && (typeof admittedQueueToken !== 'string'
+      || !/^[0-9a-f-]{36}:[0-9a-f-]{36}$/i.test(admittedQueueToken)
+      || !admittedQueueToken.startsWith(concert.crowdgateGateId + ':'))) {
+    throw new Error('Invalid admitted queue token.');
+  }
+  onStatus(admittedQueueToken ? 'Checking admission' : 'Joining queue');
+  const entry = admittedQueueToken
+    ? await request('GET', `/api/v1/queue/${encodeURIComponent(admittedQueueToken)}`)
+    : await request('POST', `/api/v1/gates/${concert.crowdgateGateId}/join`);
   const token = entry.queueToken;
   if (typeof token !== 'string' || !token.startsWith(concert.crowdgateGateId + ':')) {
     throw new Error('Invalid queue response.');
+  }
+  if (admittedQueueToken && (token !== admittedQueueToken || entry.status !== 'ACTIVE')) {
+    throw new Error('Admission expired. Re-enter the sale before buying.');
   }
   const register = () => request('POST', '/api/v1/participants', {
     concertId: concert.id, seatId, queueToken: token, firstName: names.firstName, lastName: names.lastName,
@@ -38,10 +50,12 @@ export async function buyNamed(concert, seatId, names, {signal, onStatus = () =>
     await pause();
     current = await request('GET', `/api/v1/queue/${encodeURIComponent(token)}`);
   }
-  if (current.status !== 'ADMITTED') throw new Error('Queue admission unavailable.');
-  onStatus('Entering sale');
-  const admission = await request('POST', `/api/v1/queue/${encodeURIComponent(token)}/admission-token`);
-  await request('POST', '/api/v1/admission/exchange', {concertId: concert.id, admissionToken: admission.admissionToken});
+  if (!admittedQueueToken) {
+    if (current.status !== 'ADMITTED') throw new Error('Queue admission unavailable.');
+    onStatus('Entering sale');
+    const admission = await request('POST', `/api/v1/queue/${encodeURIComponent(token)}/admission-token`);
+    await request('POST', '/api/v1/admission/exchange', {concertId: concert.id, admissionToken: admission.admissionToken});
+  }
   if (typeof seatId === 'function') {
     onStatus('Selecting seat');
     seatId = await seatId(request);
