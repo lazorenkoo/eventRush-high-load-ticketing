@@ -35,6 +35,16 @@ function fixture() {
 }
 const seat = (number, status = 'AVAILABLE', row = 'A') => ({id: `seat-${number}`, section: 'Main', row, number, price: 25, status});
 
+test('hall orders numeric section and row labels naturally rather than lexicographically', () => {
+  const value = fixture();
+  value.map.update([{...seat(1, 'AVAILABLE', '10'), section: '2'},
+    {...seat(2, 'AVAILABLE', '2'), section: '2'}, {...seat(3, 'AVAILABLE', '1'), section: '10'},
+    {...seat(4, 'AVAILABLE', '1'), section: '2'}]);
+  const labels = value.elements.filter(node => node.className === 'row-label').map(node => node.textContent);
+  assert.deepEqual(labels, ['2 / 1', '2 / 2', '2 / 10', '10 / 1']);
+  value.map.dispose();
+});
+
 test('hall groups rows, sorts seats, marks aisles and exposes accessible status and price', () => {
   const value = fixture();
   value.map.update([seat(2), seat(1), ...Array.from({length: 9}, (_, i) => seat(i + 3)), seat(20, 'SOLD', 'B')]);

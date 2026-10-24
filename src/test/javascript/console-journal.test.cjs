@@ -13,9 +13,9 @@ class Element {
   remove() { this.removed = true; }
 }
 function fixture() {
-  const elements = [], calls = [], timers = new Map();
+  const elements = [], calls = [], windows = [], timers = new Map();
   let timer = 0;
-  const context = vm.createContext({document: {createElement(tag) {
+  const context = vm.createContext({window: {open(...args) { windows.push(args); }}, document: {createElement(tag) {
     const element = new Element(); element.tag = tag; elements.push(element); return element;
   }}, setTimeout(callback, delay) { timers.set(++timer, {callback, delay}); return timer; },
   clearTimeout(id) { timers.delete(id); }});
@@ -23,13 +23,25 @@ function fixture() {
   const dispose = context.mount({journal(concert, filters) { return new Promise((resolve, reject) => {
     calls.push({concert, filters, resolve, reject});
   }); }}, 'concert', new Element());
-  return {elements, calls, timers, dispose, output: elements.find(node => node.className === 'console-output'),
+  return {elements, calls, windows, timers, dispose, output: elements.find(node => node.className === 'console-output'),
     follow: elements.find(node => node.type === 'checkbox'),
     poll() { const [id, pending] = timers.entries().next().value; timers.delete(id); pending.callback(); }};
 }
 const flush = () => new Promise(setImmediate);
 const entry = id => ({id, occurredAt: 'now', source: 'MANUAL', firstName: '<script>', lastName: 'Buyer',
   seatNumber: 7, kind: 'PAYMENT', state: 'SUCCESS', participantId: 'p', eventId: 'e'});
+
+test('console popout scopes the concert without transferring administrator credentials', () => {
+  const value = fixture();
+  const link = value.elements.find(node => node.tag === 'a');
+  let prevented = false;
+  link.listeners.click({preventDefault() { prevented = true; }});
+  assert.equal(prevented, true);
+  assert.deepEqual(value.windows[0], ['/admin.html?console=1&concertId=concert', '_blank', 'noopener,width=1000,height=800']);
+  assert.equal(link.rel, 'noopener');
+  assert.equal(link.target, '_blank');
+  value.dispose();
+});
 
 test('console bounds retention and follows backlog then normal polling without HTML interpretation', async () => {
   const value = fixture();
